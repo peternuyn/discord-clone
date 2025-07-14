@@ -1,0 +1,129 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  email         String   @unique
+  password      String
+  discriminator String   @unique // Discord-style discriminator (e.g., #1234)
+  avatar        String?
+  status        String   @default("offline") // online, idle, dnd, offline
+  bio           String?
+  location      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastSeen      DateTime @default(now())
+
+  // Relationships
+  servers       ServerMember[]
+  messages      Message[]
+  reactions     Reaction[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Server {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  icon        String?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  members     ServerMember[]
+  channels    Channel[]
+  messages    Message[]
+
+  @@map("servers")
+}
+
+model ServerMember {
+  id       String @id @default(cuid())
+  serverId String
+  userId   String
+  role     String @default("member") // owner, admin, moderator, member
+  joinedAt DateTime @default(now())
+
+  // Relationships
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, userId])
+  @@map("server_members")
+}
+
+model Channel {
+  id        String @id @default(cuid())
+  name      String
+  type      String // text, voice, announcement
+  serverId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  server    Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@map("channels")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  userId    String
+  channelId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  server    Server     @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId  String
+  reactions Reaction[]
+
+  @@map("messages")
+}
+
+model Reaction {
+  id        String @id @default(cuid())
+  emoji     String
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  // Relationships
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("reactions")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // mention, message, reaction, server, friend, system
+  title     String
+  message   String
+  userId    String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relationships
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+} 
