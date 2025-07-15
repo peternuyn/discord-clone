@@ -6,16 +6,17 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
   id            String   @id @default(cuid())
-  username      String   @unique
+  username      String
   email         String   @unique
   password      String
-  discriminator String   @unique // Discord-style discriminator (e.g., #1234)
+  discriminator String   // Discord-style discriminator (e.g., #1234)
   avatar        String?
   status        String   @default("offline") // online, idle, dnd, offline
   bio           String?
@@ -30,6 +31,7 @@ model User {
   reactions     Reaction[]
   notifications Notification[]
 
+  @@unique([username, discriminator])
   @@map("users")
 }
 
@@ -45,7 +47,6 @@ model Server {
   // Relationships
   members     ServerMember[]
   channels    Channel[]
-  messages    Message[]
 
   @@map("servers")
 }
@@ -66,12 +67,15 @@ model ServerMember {
 }
 
 model Channel {
-  id        String @id @default(cuid())
+  id        String   @id @default(cuid())
   name      String
   type      String // text, voice, announcement
   serverId  String
+  position  Int     // position of the channel in the server (for ordering channels in the UI)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt 
+
+  // considering adding isPrivate field to the channel (for private channels)
 
   // Relationships
   server    Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
@@ -91,9 +95,16 @@ model Message {
   // Relationships
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel   Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  server    Server     @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  serverId  String
   reactions Reaction[]
+
+  // Might want to support:
+  // replyToMessageId (for threads or replies)
+  // attachments (for images, files, etc.)
+  // embeds (for rich content like YouTube videos, etc.)
+  // mentions (for @username or @channel)
+  // reactions (for emojis)
+  // editedAt (for tracking edits)
+  // pinned (for pinned messages)
 
   @@map("messages")
 }
@@ -122,6 +133,10 @@ model Notification {
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
+
+  // Consider linking to a target (e.g., messageId, serverId) via optional foreign keys
+
+  
   // Relationships
   user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

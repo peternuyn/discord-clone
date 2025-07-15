@@ -40,6 +40,8 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/servers', require('./routes/server').default);
+app.use('/api/channels', require('./routes/channel').default);
 
 // Error handling middleware
 app.use(errorHandler);
