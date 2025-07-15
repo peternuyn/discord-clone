@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { AuthenticatedRequest } from '../middleware/auth';
+import { getIO } from '../realtime/socketServer';
 
 // Get a single channel
 export const getChannel = async (req: AuthenticatedRequest, res: Response) => {
@@ -97,6 +98,8 @@ export const createMessage = async (req: AuthenticatedRequest, res: Response) =>
         reactions: true,
       },
     });
+    // Emit socket event to all clients
+    getIO().to(id).emit('message:new', message);
     res.status(201).json(message);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create message' });

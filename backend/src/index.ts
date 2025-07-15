@@ -6,6 +6,8 @@ import rateLimit from 'express-rate-limit';
 import { authRoutes } from './routes/auth';
 import { userRoutes } from './routes/user';
 import { errorHandler } from './middleware/errorHandler';
+import { createServer } from 'http';
+import { initSocketServer } from './realtime/socketServer';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -51,7 +53,11 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-app.listen(PORT, () => {
+
+const httpServer = createServer(app);
+initSocketServer(httpServer); // Attach Socket.IO to the HTTP server
+
+httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
