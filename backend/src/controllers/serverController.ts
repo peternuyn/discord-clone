@@ -110,13 +110,23 @@ export const updateServer = async (req: AuthenticatedRequest, res: Response) => 
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Only allow owner to update
-    const server = await prisma.server.findUnique({ where: { id } });
+    // Check if user is the server owner or has admin role
+    const server = await prisma.server.findUnique({
+      where: { id },
+      include: { members: true },
+    });
     if (!server) {
       return res.status(404).json({ error: 'Server not found' });
     }
-    if (server.ownerId !== userId) {
-      return res.status(403).json({ error: 'Only the server owner can update the server.' });
+
+    const userMember = server.members.find(m => m.userId === userId);
+    if (!userMember) {
+      return res.status(403).json({ error: 'Not a member of this server' });
+    }
+
+    // Only owners and admins can update servers
+    if (server.ownerId !== userId && userMember.role !== 'admin') {
+      return res.status(403).json({ error: 'Only server owners and admins can update the server.' });
     }
 
     const updated = await prisma.server.update({
@@ -139,7 +149,49 @@ export const updateServer = async (req: AuthenticatedRequest, res: Response) => 
 };
 
 /**
- * Deletes a server
+ * Quits/leaves a server (for non-owners)
+ * @param req Request containing server ID
+ * @param res Response
+ * @returns Success message
+ */
+export const quitServer = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Check if user is a member of the server
+    const serverMember = await prisma.serverMember.findUnique({
+      where: { serverId_userId: { serverId: id, userId } },
+      include: { server: true },
+    });
+
+    if (!serverMember) {
+      return res.status(404).json({ error: 'Not a member of this server' });
+    }
+
+    // Check if user is the owner (owners can't quit, they must delete)
+    if (serverMember.server.ownerId === userId) {
+      return res.status(403).json({ error: 'Server owners cannot quit. Use delete server instead.' });
+    }
+
+    // Remove the user from the server
+    await prisma.serverMember.delete({
+      where: { serverId_userId: { serverId: id, userId } },
+    });
+
+    return res.json({ message: 'Successfully left the server' });
+  } catch (error) {
+    console.error('Quit server error:', error);
+    return res.status(500).json({ error: 'Failed to quit server.' });
+  }
+};
+
+/**
+ * Deletes a server (only for owners/admins)
  * @param req Request containing server ID
  * @param res Response
  * @returns Success message
@@ -153,13 +205,24 @@ export const deleteServer = async (req: AuthenticatedRequest, res: Response) => 
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Only allow owner to delete
-    const server = await prisma.server.findUnique({ where: { id } });
+    // Check if user is the server owner or has admin role
+    const server = await prisma.server.findUnique({
+      where: { id },
+      include: { members: true },
+    });
+
     if (!server) {
       return res.status(404).json({ error: 'Server not found' });
     }
-    if (server.ownerId !== userId) {
-      return res.status(403).json({ error: 'Only the server owner can delete the server.' });
+
+    const userMember = server.members.find(m => m.userId === userId);
+    if (!userMember) {
+      return res.status(403).json({ error: 'Not a member of this server' });
+    }
+
+    // Only owners and admins can delete servers
+    if (server.ownerId !== userId && userMember.role !== 'admin') {
+      return res.status(403).json({ error: 'Only server owners and admins can delete the server' });
     }
 
     await prisma.server.delete({ where: { id } });

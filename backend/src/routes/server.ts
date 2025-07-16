@@ -1,5 +1,5 @@
 import express from 'express';
-import { createServer, getUserServers, updateServer, deleteServer } from '../controllers/serverController';
+import { createServer, getUserServers, updateServer, deleteServer, quitServer } from '../controllers/serverController';
 import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
@@ -12,6 +12,10 @@ router.get('/', authMiddleware, getUserServers);
 
 // PUT /api/servers/:id - update a server
 router.put('/:id', authMiddleware, updateServer);
+
+// POST /api/servers/:id/quit - quit/leave a server
+router.post('/:id/quit', authMiddleware, quitServer);
+
 // DELETE /api/servers/:id - delete a server
 router.delete('/:id', authMiddleware, deleteServer);
 

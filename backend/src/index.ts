@@ -8,6 +8,7 @@ import { userRoutes } from './routes/user';
 import { errorHandler } from './middleware/errorHandler';
 import { createServer } from 'http';
 import { initSocketServer } from './realtime/socketServer';
+import inviteRoutes from './routes/invite';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -44,6 +45,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/servers', require('./routes/server').default);
 app.use('/api/channels', require('./routes/channel').default);
+app.use('/api/invites', inviteRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

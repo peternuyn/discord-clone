@@ -25,10 +25,34 @@ export function initSocketServer(server: HttpServer) {
   io.on('connection', (socket: Socket) => {
     console.log('A user connected:', socket.id);
 
+    // Handle joining a channel room
+    socket.on('join', (channelId: string) => {
+      socket.join(channelId);
+      console.log(`User ${socket.id} joined channel ${channelId}`);
+    });
+
+    // Handle joining a server room
+    socket.on('joinServer', (serverId: string) => {
+      socket.join(serverId);
+      console.log(`User ${socket.id} joined server ${serverId}`);
+    });
+
+    // Handle leaving a channel room
+    socket.on('leave', (channelId: string) => {
+      socket.leave(channelId);
+      console.log(`User ${socket.id} left channel ${channelId}`);
+    });
+
+    // Handle leaving a server room
+    socket.on('leaveServer', (serverId: string) => {
+      socket.leave(serverId);
+      console.log(`User ${socket.id} left server ${serverId}`);
+    });
+
     // Handle new messages from clients
     socket.on('message:new', (data: any) => {
-      // Broadcast message to all other connected clients
-      socket.broadcast.emit('message:new', data);
+      // Broadcast message to all clients in the same channel
+      socket.to(data.channelId || 'general').emit('message:new', data);
     });
 
     // Handle client disconnections

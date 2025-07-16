@@ -30,6 +30,10 @@ export const createChannel = async (req: AuthenticatedRequest, res: Response) =>
         position: 0, // or calculate next position
       },
     });
+    
+    // Emit socket event to all clients in the server
+    getIO().to(serverId).emit('channel:new', channel);
+    
     res.status(201).json(channel);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create channel' });
@@ -45,6 +49,10 @@ export const updateChannel = async (req: AuthenticatedRequest, res: Response) =>
       where: { id },
       data: { ...(name && { name }), ...(type && { type }) },
     });
+    
+    // Emit socket event to all clients in the server
+    getIO().to(updated.serverId).emit('channel:update', updated);
+    
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update channel' });
@@ -55,7 +63,16 @@ export const updateChannel = async (req: AuthenticatedRequest, res: Response) =>
 export const deleteChannel = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
+    
+    // Get channel info before deletion for socket emission
+    const channel = await prisma.channel.findUnique({ where: { id } });
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+    
     await prisma.channel.delete({ where: { id } });
+    
+    // Emit socket event to all clients in the server
+    getIO().to(channel.serverId).emit('channel:delete', id);
+    
     res.json({ message: 'Channel deleted' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete channel' });
@@ -66,6 +83,8 @@ export const deleteChannel = async (req: AuthenticatedRequest, res: Response) =>
 export const getChannelMessages = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params; // channelId
+    const { limit = 100, offset = 0 } = req.query; // Add pagination
+    
     const messages = await prisma.message.findMany({
       where: { channelId: id },
       orderBy: { createdAt: 'asc' },
@@ -73,8 +92,24 @@ export const getChannelMessages = async (req: AuthenticatedRequest, res: Respons
         user: true,
         reactions: true,
       },
+      take: Number(limit),
+      skip: Number(offset),
     });
-    res.json(messages);
+    
+    // Get total count for pagination info
+    const totalCount = await prisma.message.count({
+      where: { channelId: id },
+    });
+    
+    res.json({
+      messages,
+      pagination: {
+        total: totalCount,
+        limit: Number(limit),
+        offset: Number(offset),
+        hasMore: Number(offset) + Number(limit) < totalCount,
+      },
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch messages' });
   }
@@ -98,8 +133,8 @@ export const createMessage = async (req: AuthenticatedRequest, res: Response) =>
         reactions: true,
       },
     });
-    // Emit socket event to all clients
-    getIO().to(id).emit('message:new', message);
+    // Emit socket event to all clients in the channel
+    getIO().to(id).emit('message:new', { ...message, channelId: id });
     res.status(201).json(message);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create message' });
