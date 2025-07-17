@@ -5,6 +5,7 @@ async function clean() {
   console.log('Cleaning database...');
 
   // Delete in dependency-safe order (from leaf to root)
+  // await prisma.user.deleteMany({});
   await prisma.reaction.deleteMany({});
   await prisma.message.deleteMany({});
   await prisma.channel.deleteMany({});

@@ -7,6 +7,7 @@ const router = express.Router();
 
 router.get('/:id', authMiddleware, getChannel);
 router.post('/', authMiddleware, createChannel);
+router.post('/server/:serverId', authMiddleware, createChannel); // Route for creating channels in a specific server
 router.put('/:id', authMiddleware, updateChannel);
 router.delete('/:id', authMiddleware, deleteChannel);
 router.get('/:id/messages', authMiddleware, getChannelMessages);

@@ -22,6 +22,8 @@ export const createChannel = async (req: AuthenticatedRequest, res: Response) =>
     const { name, type } = req.body;
     if (!name || !type) return res.status(400).json({ error: 'Name and type are required' });
 
+    console.log('Creating channel:', { serverId, name, type });
+
     const channel = await prisma.channel.create({
       data: {
         name,
@@ -31,11 +33,20 @@ export const createChannel = async (req: AuthenticatedRequest, res: Response) =>
       },
     });
     
+    console.log('Channel created:', channel);
+    console.log('Emitting socket event to server room:', serverId);
+    
     // Emit socket event to all clients in the server
     getIO().to(serverId).emit('channel:new', channel);
     
+    // Test event to see if socket is working
+    getIO().to(serverId).emit('test:event', { message: 'Test event from channel creation', channelId: channel.id });
+    
+    console.log('Socket event emitted successfully');
+    
     res.status(201).json(channel);
   } catch (error) {
+    console.error('Error creating channel:', error);
     res.status(500).json({ error: 'Failed to create channel' });
   }
 };
