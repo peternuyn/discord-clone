@@ -23,7 +23,6 @@ model User {
   location      String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  lastSeen      DateTime @default(now())
 
   // Relationships
   servers       ServerMember[]

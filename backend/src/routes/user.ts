@@ -1,16 +1,16 @@
-import { Router } from 'express';
-import { updateProfile, getUserProfile, getUsers } from '../controllers/userController';
+import express from 'express';
+import { getUserProfile, updateProfile, getUsers, getOnlineUsers, getOnlineUsersForServer, isUserOnline } from '../controllers/userController';
 import { authMiddleware } from '../middleware/auth';
-import { validateProfile } from '../middleware/validation';
 
-const router = Router();
+const router = express.Router();
 
-// All routes require authentication
-router.use(authMiddleware);
+router.get('/me', authMiddleware, getUserProfile);
+router.put('/me', authMiddleware, updateProfile);
+router.get('/', authMiddleware, getUsers);
 
-// User profile routes
-router.get('/profile', getUserProfile);
-router.put('/profile', validateProfile, updateProfile);
-router.get('/users', getUsers);
+// Online users endpoints
+router.get('/online', authMiddleware, getOnlineUsers);
+router.get('/online/server/:serverId', authMiddleware, getOnlineUsersForServer);
+router.get('/online/:userId', authMiddleware, isUserOnline);
 
-export { router as userRoutes }; 
+export default router; 

@@ -4,11 +4,13 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { authRoutes } from './routes/auth';
-import { userRoutes } from './routes/user';
+import userRoutes from './routes/user';
 import { errorHandler } from './middleware/errorHandler';
 import { createServer } from 'http';
 import { initSocketServer } from './realtime/socketServer';
 import inviteRoutes from './routes/invite';
+import serverRoutes from './routes/server';
+import channelRoutes from './routes/channel';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -42,9 +44,9 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
-app.use('/api/user', userRoutes);
-app.use('/api/servers', require('./routes/server').default);
-app.use('/api/channels', require('./routes/channel').default);
+app.use('/api/users', userRoutes);
+app.use('/api/servers', serverRoutes);
+app.use('/api/channels', channelRoutes);
 app.use('/api/invites', inviteRoutes);
 
 // Error handling middleware

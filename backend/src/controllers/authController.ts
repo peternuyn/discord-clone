@@ -102,13 +102,10 @@ export const login = async (req: Request, res: Response) => {
     // Generate JWT token
     const token = generateToken(user.id);
 
-    // Update last seen
+    // Update user status to online
     await prisma.user.update({
       where: { id: user.id },
-      data: { 
-        lastSeen: new Date(),
-        status: 'online'
-      }
+      data: { status: 'online' }
     });
 
     // Set HTTP-only cookie
@@ -180,7 +177,6 @@ export const getCurrentUser = async (req: Request, res: Response) => {
         bio: true,
         location: true,
         createdAt: true,
-        lastSeen: true,
         password: false,
       }
     });

@@ -90,10 +90,46 @@ export const getChannelMessages = async (req: AuthenticatedRequest, res: Respons
       orderBy: { createdAt: 'asc' },
       include: {
         user: true,
-        reactions: true,
+        reactions: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                avatar: true
+              }
+            }
+          }
+        },
       },
       take: Number(limit),
       skip: Number(offset),
+    });
+    
+    // Aggregate reactions by emoji for each message
+    const processedMessages = messages.map(message => {
+      const reactionMap = new Map();
+      message.reactions.forEach(reaction => {
+        const key = reaction.emoji;
+        if (!reactionMap.has(key)) {
+          reactionMap.set(key, {
+            emoji: key,
+            count: 0,
+            users: []
+          });
+        }
+        const aggregated = reactionMap.get(key);
+        aggregated.count += 1;
+        aggregated.users.push({
+          id: reaction.user.id,
+          username: reaction.user.username,
+          avatar: reaction.user.avatar
+        });
+      });
+      return {
+        ...message,
+        reactions: Array.from(reactionMap.values())
+      };
     });
     
     // Get total count for pagination info
@@ -102,7 +138,7 @@ export const getChannelMessages = async (req: AuthenticatedRequest, res: Respons
     });
     
     res.json({
-      messages,
+      messages: processedMessages,
       pagination: {
         total: totalCount,
         limit: Number(limit),

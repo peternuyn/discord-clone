@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/db';
+import { AuthenticatedRequest } from '../middleware/auth';
+import { onlineUsersService } from '../realtime/onlineUsers';
 
 export const getUserProfile = async (req: Request, res: Response) => {
   try {
@@ -17,7 +19,6 @@ export const getUserProfile = async (req: Request, res: Response) => {
         bio: true,
         location: true,
         createdAt: true,
-        lastSeen: true,
         password: false,
       }
     });
@@ -74,7 +75,6 @@ export const updateProfile = async (req: Request, res: Response) => {
         bio: true,
         location: true,
         createdAt: true,
-        lastSeen: true,
         password: false,
       }
     });
@@ -138,5 +138,80 @@ export const getUsers = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Get users error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Get all online users
+ */
+export const getOnlineUsers = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const onlineUsers = onlineUsersService.getOnlineUsers();
+    
+    res.json({
+      onlineUsers,
+      count: onlineUsers.length,
+      totalOnline: onlineUsersService.getOnlineUsersCount()
+    });
+  } catch (error) {
+    console.error('Get online users error:', error);
+    res.status(500).json({ error: 'Failed to get online users' });
+  }
+};
+
+/**
+ * Get online users for a specific server
+ */
+export const getOnlineUsersForServer = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { serverId } = req.params;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Check if user is a member of the server
+    const serverMember = await prisma.serverMember.findUnique({
+      where: {
+        serverId_userId: {
+          serverId,
+          userId
+        }
+      }
+    });
+
+    if (!serverMember) {
+      return res.status(403).json({ error: 'Not a member of this server' });
+    }
+
+    const onlineUsers = await onlineUsersService.getOnlineUsersForServer(serverId);
+    
+    res.json({
+      onlineUsers,
+      count: onlineUsers.length
+    });
+  } catch (error) {
+    console.error('Get online users for server error:', error);
+    res.status(500).json({ error: 'Failed to get online users for server' });
+  }
+};
+
+/**
+ * Check if a specific user is online
+ */
+export const isUserOnline = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+    
+    const isOnline = onlineUsersService.isUserOnline(userId);
+    
+    res.json({
+      userId,
+      isOnline
+    });
+  } catch (error) {
+    console.error('Check user online status error:', error);
+    res.status(500).json({ error: 'Failed to check user online status' });
   }
 }; 
