@@ -30,6 +30,7 @@ model User {
   reactions     Reaction[]
   notifications Notification[]
   invites       Invite[]
+  voiceState    VoiceState?
 
   @@unique([username, discriminator])
   @@map("users")
@@ -73,6 +74,7 @@ model Channel {
   type      String // text, voice, announcement
   serverId  String
   position  Int     // position of the channel in the server (for ordering channels in the UI)
+  maxParticipants Int? // For voice channels
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt 
 
@@ -81,6 +83,7 @@ model Channel {
   // Relationships
   server    Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
   messages  Message[]
+  voiceStates VoiceState[]
 
   @@map("channels")
 }
@@ -156,4 +159,20 @@ model Invite {
   usedById  String?
   usedBy    User?    @relation(fields: [usedById], references: [id])
   usedAt    DateTime?
+} 
+
+model VoiceState {
+  id String @id @default(cuid())
+  userId String @unique
+  channelId String?
+  isMuted Boolean @default(false)
+  isDeafened Boolean @default(false)
+  isSpeaking Boolean @default(false)
+  joinedAt DateTime @default(now())
+  
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@map("voice_states")
 } 

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { apiService } from '@/services/api';
-import { io, Socket } from 'socket.io-client';
+import { useSocket } from './useSocket';
 
 interface OnlineUser {
   userId: string;
@@ -20,7 +20,7 @@ export function useOnlineUsers({ serverId, enableRealTime = true }: UseOnlineUse
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
+  const { socket } = useSocket();
 
   // Fetch online users from API
   const fetchOnlineUsers = async () => {
@@ -46,51 +46,33 @@ export function useOnlineUsers({ serverId, enableRealTime = true }: UseOnlineUse
 
   // Setup real-time updates via websocket
   useEffect(() => {
-    if (!enableRealTime) return;
+    if (!enableRealTime || !socket) return;
 
-    // Initialize socket connection
-    if (!socketRef.current) {
-      socketRef.current = io('http://localhost:5000', {
-        withCredentials: true,
-        transports: ['websocket', 'polling'],
-        auth: {
-          token: document.cookie.split('token=')[1]?.split(';')[0] // Extract token from cookie
-        }
-      });
-    }
-
-    const socket = socketRef.current;
+    console.log('useOnlineUsers: Setting up real-time listeners for serverId:', serverId);
 
     // Listen for user online events
     const handleUserOnline = (user: OnlineUser) => {
-      // Only add user if we're not filtering by server, or if we need to check server membership
-      if (!serverId) {
-        setOnlineUsers(prev => {
-          // Check if user is already in the list
-          const existingUser = prev.find(u => u.userId === user.userId);
-          if (existingUser) {
-            // Update existing user
-            return prev.map(u => u.userId === user.userId ? user : u);
-          } else {
-            // Add new user
-            return [...prev, user];
-          }
-        });
-      } else {
-        // If we're filtering by server, we need to check if this user belongs to our server
-        // Since we can't easily check this on the frontend, we'll refetch the server-specific list
-        fetchOnlineUsers();
-      }
+      console.log('useOnlineUsers: User online event received:', user);
+      
+      // The backend already filters events by server membership, so we can safely add the user
+      setOnlineUsers(prev => {
+        // Check if user is already in the list
+        const existingUser = prev.find(u => u.userId === user.userId);
+        if (existingUser) {
+          // Update existing user
+          return prev.map(u => u.userId === user.userId ? user : u);
+        } else {
+          // Add new user
+          return [...prev, user];
+        }
+      });
     };
 
     // Listen for user offline events
     const handleUserOffline = (user: { userId: string; username: string; discriminator: string }) => {
-      if (!serverId) {
-        setOnlineUsers(prev => prev.filter(u => u.userId !== user.userId));
-      } else {
-        // If we're filtering by server, refetch to get the updated list
-        fetchOnlineUsers();
-      }
+      console.log('useOnlineUsers: User offline event received:', user);
+      
+      setOnlineUsers(prev => prev.filter(u => u.userId !== user.userId));
     };
 
     socket.on('user:online', handleUserOnline);
@@ -98,10 +80,11 @@ export function useOnlineUsers({ serverId, enableRealTime = true }: UseOnlineUse
 
     // Cleanup
     return () => {
+      console.log('useOnlineUsers: Cleaning up real-time listeners');
       socket.off('user:online', handleUserOnline);
       socket.off('user:offline', handleUserOffline);
     };
-  }, [enableRealTime, serverId]); // Add serverId as dependency
+  }, [enableRealTime, serverId, socket]);
 
   // Initial fetch
   useEffect(() => {

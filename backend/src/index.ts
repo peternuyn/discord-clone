@@ -11,6 +11,7 @@ import { initSocketServer } from './realtime/socketServer';
 import inviteRoutes from './routes/invite';
 import serverRoutes from './routes/server';
 import channelRoutes from './routes/channel';
+import voiceRoutes from './routes/voice';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -48,6 +49,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/servers', serverRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/invites', inviteRoutes);
+app.use('/api/voice', voiceRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

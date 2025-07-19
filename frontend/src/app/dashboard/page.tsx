@@ -14,8 +14,11 @@ import { UserProfile } from '@/components/auth/UserProfile';
 import CreateServerModal from '@/components/server/CreateServerModal';
 import ChannelModal from '@/components/server/ChannelModal';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { VoiceChannel } from '@/components/voice/VoiceChannel';
+import { VoiceControls } from '@/components/voice/VoiceControls';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOnlineUsers } from '@/hooks/useOnlineUsers';
+import { useSocket } from '@/hooks/useSocket';
 import { apiService } from '@/services/api';
 import { 
   MessageCircle, 
@@ -47,6 +50,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { io, Socket } from 'socket.io-client';
 import { Skeleton } from '@/components/ui/skeleton';
 import OnlineUsersSidebar from '@/components/sidebar/OnlineUsersSidebar';
+import GetStartedCard from '@/components/onboarding/GetStartedCard';
 
 interface Message {
   id: string;
@@ -62,6 +66,23 @@ interface Message {
     count: number;
     users: Array<{ username: string; avatar: string; }>;
   }>;
+}
+
+// Helper to enforce that no user appears in more than one channel
+function enforceSingleChannelPerUser(participantsByChannel: Record<string, any[]>): Record<string, any[]> {
+  const userChannelMap: Record<string, string> = {};
+  const cleaned: Record<string, any[]> = {};
+  Object.entries(participantsByChannel).forEach(([channelId, participants]) => {
+    cleaned[channelId] = [];
+    participants.forEach(p => {
+      if (!userChannelMap[p.userId]) {
+        userChannelMap[p.userId] = channelId;
+        cleaned[channelId].push(p);
+      }
+      // else: user already assigned to a channel, skip
+    });
+  });
+  return cleaned;
 }
 
 export default function Dashboard() {
@@ -82,11 +103,291 @@ export default function Dashboard() {
   const [channelModalMode, setChannelModalMode] = useState<'create' | 'edit'>('create');
   const [editingChannel, setEditingChannel] = useState<any>(null);
   const [creatingChannelType, setCreatingChannelType] = useState<string>('text');
-  const socketRef = useRef<Socket | null>(null);
+  // Voice channel state management
+  const [voiceChannelParticipants, setVoiceChannelParticipants] = useState<Record<string, any[]>>({});
+  const [currentVoiceChannel, setCurrentVoiceChannel] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Event handler functions
+  const handleNewMessage = (msg: any) => {
+    const newMessage = { ...msg, timestamp: new Date(msg.createdAt) };
+    setMessageCache(prev => ({
+      ...prev,
+      [msg.channelId]: [...(prev[msg.channelId] || []), newMessage]
+    }));
+    
+    if (msg.channelId === selectedChannel?.id) {
+      setMessages(prev => [...prev, newMessage]);
+    }
+  };
+
+  const handleReactionAdded = (data: any) => {
+    setMessageCache(prev => {
+      const channelMessages = prev[data.channelId] || [];
+      const updatedMessages = channelMessages.map(msg => {
+        if (msg.id === data.messageId) {
+          const existingReaction = msg.reactions?.find((r: any) => r.emoji === data.emoji);
+          if (existingReaction) {
+            return {
+              ...msg,
+              reactions: msg.reactions.map((r: any) =>
+                r.emoji === data.emoji
+                  ? { ...r, count: r.count + 1, users: [...r.users, data.user] }
+                  : r
+              )
+            };
+          } else {
+            return {
+              ...msg,
+              reactions: [...(msg.reactions || []), {
+                emoji: data.emoji,
+                count: 1,
+                users: [data.user]
+              }]
+            };
+          }
+        }
+        return msg;
+      });
+      
+      return {
+        ...prev,
+        [data.channelId]: updatedMessages
+      };
+    });
+    
+    if (data.channelId === selectedChannel?.id) {
+      setMessages(prev => {
+        return prev.map(msg => {
+          if (msg.id === data.messageId) {
+            const existingReaction = msg.reactions?.find((r: any) => r.emoji === data.emoji);
+            if (existingReaction) {
+              return {
+                ...msg,
+                reactions: msg.reactions.map((r: any) =>
+                  r.emoji === data.emoji
+                    ? { ...r, count: r.count + 1, users: [...r.users, data.user] }
+                    : r
+                )
+              };
+            } else {
+              return {
+                ...msg,
+                reactions: [...(msg.reactions || []), {
+                  emoji: data.emoji,
+                  count: 1,
+                  users: [data.user]
+                }]
+              };
+            }
+          }
+          return msg;
+        });
+      });
+    }
+  };
+
+  const handleReactionRemoved = (data: any) => {
+    setMessageCache(prev => {
+      const channelMessages = prev[data.channelId] || [];
+      const updatedMessages = channelMessages.map(msg => {
+        if (msg.id === data.messageId) {
+          return {
+            ...msg,
+            reactions: msg.reactions?.map((r: any) =>
+              r.emoji === data.emoji
+                ? { ...r, count: Math.max(0, r.count - 1), users: r.users.filter((u: any) => u.id !== data.user.id) }
+                : r
+            ).filter((r: any) => r.count > 0) || []
+          };
+        }
+        return msg;
+      });
+      
+      return {
+        ...prev,
+        [data.channelId]: updatedMessages
+      };
+    });
+    
+    if (data.channelId === selectedChannel?.id) {
+      setMessages(prev => {
+        return prev.map(msg => {
+          if (msg.id === data.messageId) {
+            return {
+              ...msg,
+              reactions: msg.reactions?.map((r: any) =>
+                r.emoji === data.emoji
+                  ? { ...r, count: Math.max(0, r.count - 1), users: r.users.filter((u: any) => u.id !== data.user.id) }
+                  : r
+              ).filter((r: any) => r.count > 0) || []
+            };
+          }
+          return msg;
+        });
+      });
+    }
+  };
+
+  const handleChannelUpdate = (updatedChannel: any) => {
+    setServers(prev => prev.map(server => ({
+      ...server,
+      channels: server.channels.map((channel: any) => 
+        channel.id === updatedChannel.id ? updatedChannel : channel
+      )
+    })));
+    
+    if (selectedChannel?.id === updatedChannel.id) {
+      setSelectedChannel(updatedChannel);
+    }
+  };
+
+  const handleNewChannel = (newChannel: any) => {
+    setServers(prev => prev.map(server => 
+      server.id === newChannel.serverId 
+        ? { ...server, channels: [...server.channels, newChannel] }
+        : server
+    ));
+  };
+
+  const handleChannelDelete = (channelId: string) => {
+    setServers(prev => prev.map(server => ({
+      ...server,
+      channels: server.channels.filter((channel: any) => channel.id !== channelId)
+    })));
+    
+    if (selectedChannel?.id === channelId) {
+      const currentServer = servers.find(s => s.channels.some((c: any) => c.id === channelId));
+      if (currentServer && currentServer.channels.length > 0) {
+        setSelectedChannel(currentServer.channels[0]);
+      }
+    }
+  };
+
+  // Voice channel event handlers
+  const handleVoiceJoined = (data: { channelId: string; participants: any[] }) => {
+    console.log('Dashboard: Voice joined event received:', data);
+    setCurrentVoiceChannel(data.channelId);
+    
+    // Update participants for the joined channel
+    setVoiceChannelParticipants(prev => {
+      const updated = {
+        ...prev,
+        [data.channelId]: data.participants
+      };
+      console.log('Dashboard: Updated voiceChannelParticipants after join:', updated);
+      return updated;
+    });
+  };
+
+  const handleVoiceLeft = () => {
+    console.log('Dashboard: Voice left event received');
+    setCurrentVoiceChannel(null);
+    
+    // Also remove the current user from all voice channel participants
+    if (user?.id) {
+      setVoiceChannelParticipants(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(channelId => {
+          updated[channelId] = updated[channelId].filter(p => p.userId !== user.id);
+        });
+        
+        // Clean up empty channels
+        Object.keys(updated).forEach(channelId => {
+          if (updated[channelId].length === 0) {
+            delete updated[channelId];
+          }
+        });
+        
+        console.log('Dashboard: Updated voiceChannelParticipants after leave:', updated);
+        return updated;
+      });
+    }
+  };
+
+  const handleVoiceUserJoined = (data: { channelId: string; userId: string; username: string; discriminator: string; avatar?: string; socketId: string; joinedAt: Date }) => {
+    console.log('Dashboard: Voice user joined event received:', data);
+    
+    setVoiceChannelParticipants(prev => {
+      const updated = { ...prev };
+      
+      // Remove user from any other voice channels first
+      Object.keys(updated).forEach(channelId => {
+        if (channelId !== data.channelId) {
+          updated[channelId] = updated[channelId].filter(p => p.userId !== data.userId);
+        }
+      });
+      
+      // Add user to the target channel
+      if (!updated[data.channelId]) {
+        updated[data.channelId] = [];
+      }
+      
+      const existingIndex = updated[data.channelId].findIndex(p => p.userId === data.userId);
+      if (existingIndex === -1) {
+        updated[data.channelId].push({
+          userId: data.userId,
+          username: data.username,
+          discriminator: data.discriminator,
+          avatar: data.avatar,
+          socketId: data.socketId,
+          joinedAt: new Date(data.joinedAt)
+        });
+        console.log('Dashboard: Added user', data.username, 'to channel', data.channelId);
+      }
+      
+      console.log('Dashboard: Final voiceChannelParticipants after user joined:', updated);
+      return updated;
+    });
+  };
+
+  const handleVoiceUserLeft = (data: { channelId: string; userId: string; socketId: string }) => {
+    console.log('Dashboard: Voice user left event received:', data);
+    
+    setVoiceChannelParticipants(prev => {
+      const updated = { ...prev };
+      const channelParticipants = updated[data.channelId] || [];
+      
+      const filtered = channelParticipants.filter(p => p.userId !== data.userId);
+      updated[data.channelId] = filtered;
+      
+      // Clean up empty channels
+      Object.keys(updated).forEach(channelId => {
+        if (updated[channelId].length === 0) {
+          delete updated[channelId];
+        }
+      });
+      
+      console.log('Dashboard: Final voiceChannelParticipants after user left:', updated);
+      return updated;
+    });
+  };
+
+  const handleVoiceStateUpdate = (data: { userId: string; socketId: string; isMuted?: boolean; isDeafened?: boolean; isSpeaking?: boolean }) => {
+    console.log('Dashboard: Voice state update received:', data);
+    
+    setVoiceChannelParticipants(prev => {
+      const updated = { ...prev };
+      
+      // Find and update the participant in any channel
+      Object.keys(updated).forEach(channelId => {
+        const participantIndex = updated[channelId].findIndex(p => p.userId === data.userId);
+        if (participantIndex !== -1) {
+          updated[channelId][participantIndex] = {
+            ...updated[channelId][participantIndex],
+            ...data
+          };
+        }
+      });
+      
+      return updated;
+    });
+  };
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const selectedServerRef = useRef<any>(null);
   const { onlineUsers, isLoading: isLoadingOnlineUsers, error: onlineUsersError } = useOnlineUsers({ serverId: selectedServer?.id });
+  const { socket } = useSocket();
 
   // Update the ref whenever selectedServer changes
   useEffect(() => {
@@ -95,17 +396,12 @@ export default function Dashboard() {
 
   // Debug servers state changes
   useEffect(() => {
-    console.log('=== SERVERS STATE CHANGED ===');
-    console.log('New servers state:', servers);
     if (selectedServer) {
       const currentServer = servers.find(s => s.id === selectedServer.id);
-      console.log('Current server channels:', currentServer?.channels);
       const voiceChannels = currentServer?.channels.filter((c: any) => c.type === 'voice') || [];
-      console.log('Voice channels in current server:', voiceChannels);
       
       // Update selectedServer if it exists in the new servers state
       if (currentServer && currentServer !== selectedServer) {
-        console.log('Updating selectedServer with new data');
         setSelectedServer(currentServer);
       }
     }
@@ -162,16 +458,13 @@ export default function Dashboard() {
       
       // Check if messages are already cached
       if (messageCache[selectedChannel.id]) {
-        console.log('Loading messages from cache for channel:', selectedChannel.id);
         setMessages(messageCache[selectedChannel.id]);
         return;
       }
       
       setIsLoadingMessages(true);
       try {
-        console.log('Loading messages from API for channel:', selectedChannel.id);
         const response = await apiService.getChannelMessages(selectedChannel.id);
-        console.log('Loaded messages:', response.messages);
         
         // Cache the messages
         setMessageCache(prev => ({
@@ -210,7 +503,7 @@ export default function Dashboard() {
             [channel.id]: response.messages
           }));
         } catch (error) {
-          console.error(`Error prefetching messages for channel ${channel.id}:`, error);
+          // console.error(`Error prefetching messages for channel ${channel.id}:`, error);
         }
       }
     };
@@ -233,216 +526,122 @@ export default function Dashboard() {
     }
   }, [messages.length]); // Only trigger on message count changes, not content changes
 
-  // Setup socket connection and listeners
+  // Socket event handling
   useEffect(() => {
-    // Initialize socket connection if not exists
-    if (!socketRef.current) {
-      socketRef.current = io('http://localhost:5000', {
-        withCredentials: true,
-        transports: ['websocket', 'polling'],
-      });
-      
-      socketRef.current.on('connect', () => {
-        console.log('Socket connected:', socketRef.current?.id);
-      });
-      
-      socketRef.current.on('disconnect', () => {
-        console.log('Socket disconnected');
-      });
-      
-      socketRef.current.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
-      });
+    if (!socket || !socket.connected) {
+      console.log('Dashboard: Socket not available or not connected');
+      return;
     }
-    
-    const socket = socketRef.current;
-    
-    // Listen for new messages
-    const handleNewMessage = (msg: any) => {
-      console.log('Received new message:', msg);
-      if (msg.channelId === selectedChannel?.id) {
-        const newMessage = { ...msg, timestamp: new Date(msg.createdAt) };
-        setMessages(prev => [...prev, newMessage]);
-        
-        // Update cache
-        setMessageCache(prev => ({
-          ...prev,
-          [msg.channelId]: [...(prev[msg.channelId] || []), newMessage]
-        }));
-      }
-    };
-    
-    // Listen for reaction updates
-    const handleReactionAdded = (data: any) => {
-      console.log('Reaction added:', data);
-      if (data.messageId) {
-        setMessages(prev => prev.map(msg =>
-          msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg
-        ));
-        
-        // Update cache
-        setMessageCache(prev => ({
-          ...prev,
-          [selectedChannel?.id]: (prev[selectedChannel?.id] || []).map(msg =>
-            msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg
-          )
-        }));
-      }
-    };
-    
-    const handleReactionRemoved = (data: any) => {
-      console.log('Reaction removed:', data);
-      if (data.messageId) {
-        setMessages(prev => prev.map(msg =>
-          msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg
-        ));
-        
-        // Update cache
-        setMessageCache(prev => ({
-          ...prev,
-          [selectedChannel?.id]: (prev[selectedChannel?.id] || []).map(msg =>
-            msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg
-          )
-        }));
-      }
-    };
-    
-    // Listen for channel updates
-    const handleChannelUpdate = (updatedChannel: any) => {
-      console.log('Channel updated:', updatedChannel);
-      setServers(prev => prev.map(server => ({
-        ...server,
-        channels: server.channels.map((channel: any) => 
-          channel.id === updatedChannel.id ? updatedChannel : channel
-        )
-      })));
-      
-      // Update selected channel if it's the one that was updated
-      if (selectedChannel?.id === updatedChannel.id) {
-        setSelectedChannel(updatedChannel);
-      }
-    };
-    
-    // Listen for new channels
-    const handleNewChannel = (newChannel: any) => {
-      console.log('=== CHANNEL SOCKET EVENT RECEIVED ===');
-      console.log('New channel created via socket:', newChannel);
-      console.log('Channel type:', newChannel.type);
-      console.log('Current server ID:', selectedServerRef.current?.id);
-      console.log('Channel server ID:', newChannel.serverId);
-      console.log('Current servers state:', servers);
-      
-      // Only update if the channel belongs to the current server
-      if (newChannel.serverId === selectedServerRef.current?.id) {
-        console.log('✅ Channel belongs to current server, updating state...');
-        setServers(prev => {
-          console.log('Previous servers state:', prev);
-          const updated = prev.map(server => {
-            if (server.id === selectedServerRef.current?.id) {
-              console.log('Updating server:', server.id);
-              console.log('Current channels:', server.channels);
-              console.log('Adding new channel:', newChannel);
-              const newChannels = [...server.channels, newChannel];
-              console.log('New channels array:', newChannels);
-              return {
-                ...server,
-                channels: newChannels
-              };
-            }
-            return server;
-          });
-          console.log('Final updated servers state:', updated);
-          return updated;
-        });
-        console.log('✅ State update triggered');
-      } else {
-        console.log('❌ Channel belongs to different server, not updating');
-        console.log('Expected server ID:', selectedServerRef.current?.id);
-        console.log('Channel server ID:', newChannel.serverId);
-      }
-    };
 
-    // Test socket event listener
-    const handleTestEvent = (data: any) => {
-      console.log('=== TEST SOCKET EVENT RECEIVED ===');
-      console.log('Test event data:', data);
-    };
-    
-    // Listen for channel deletion
-    const handleChannelDelete = (channelId: string) => {
-      console.log('Channel deleted:', channelId);
-      setServers(prev => prev.map(server => ({
-        ...server,
-        channels: server.channels.filter((channel: any) => channel.id !== channelId)
-      })));
-      
-      // If the deleted channel was selected, select the first available channel
-      if (selectedChannel?.id === channelId) {
-        const currentServer = servers.find(s => s.channels.some((c: any) => c.id === channelId));
-        if (currentServer && currentServer.channels.length > 0) {
-          setSelectedChannel(currentServer.channels[0]);
-        }
-      }
-    };
-    
+    console.log('Dashboard: Registering socket event listeners');
+
+    // Message events
     socket.on('message:new', handleNewMessage);
     socket.on('reaction:added', handleReactionAdded);
     socket.on('reaction:removed', handleReactionRemoved);
+    
+    // Channel events
     socket.on('channel:update', handleChannelUpdate);
     socket.on('channel:new', handleNewChannel);
     socket.on('channel:delete', handleChannelDelete);
-    socket.on('test:event', handleTestEvent); // Add the new listener
     
+    // Voice channel events
+    socket.on('voice:joined', handleVoiceJoined);
+    socket.on('voice:left', handleVoiceLeft);
+    socket.on('voice:userJoined', handleVoiceUserJoined);
+    socket.on('voice:userLeft', handleVoiceUserLeft);
+    socket.on('voice:stateUpdate', handleVoiceStateUpdate);
+
+    // User online/offline events
+    const handleUserOnline = (user: any) => {
+      console.log('Dashboard: User online event received:', user);
+    };
+
+    const handleUserOffline = (user: any) => {
+      console.log('Dashboard: User offline event received:', user);
+    };
+
+    socket.on('user:online', handleUserOnline);
+    socket.on('user:offline', handleUserOffline);
+
+    console.log('Dashboard: All socket event listeners registered');
+
     // Cleanup on unmount
     return () => {
+      console.log('Dashboard: Cleaning up socket event listeners');
+      
+      // Message events
       socket.off('message:new', handleNewMessage);
       socket.off('reaction:added', handleReactionAdded);
       socket.off('reaction:removed', handleReactionRemoved);
+      
+      // Channel events
       socket.off('channel:update', handleChannelUpdate);
       socket.off('channel:new', handleNewChannel);
       socket.off('channel:delete', handleChannelDelete);
-      socket.off('test:event', handleTestEvent); // Remove the new listener
+      
+      // Voice channel events
+      socket.off('voice:joined', handleVoiceJoined);
+      socket.off('voice:left', handleVoiceLeft);
+      socket.off('voice:userJoined', handleVoiceUserJoined);
+      socket.off('voice:userLeft', handleVoiceUserLeft);
+      socket.off('voice:stateUpdate', handleVoiceStateUpdate);
+
+      // User online/offline events
+      socket.off('user:online', handleUserOnline);
+      socket.off('user:offline', handleUserOffline);
     };
-  }, []); // Only run once on mount
+  }, [socket, socket?.connected]);
 
   // Handle room joining/leaving when server or channel changes
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socket || !socket.connected) {
+      console.log('Dashboard: Cannot join rooms - socket not connected');
+      return;
+    }
     
-    const socket = socketRef.current;
+    console.log('Dashboard: Setting up room joining for server:', selectedServer?.id);
     
     // Join the server room when server changes
     if (selectedServer?.id) {
-      console.log('Attempting to join server room:', selectedServer.id);
       socket.emit('joinServer', selectedServer.id);
-      console.log('Joined server room:', selectedServer.id);
+      console.log('Dashboard: Joined server room:', selectedServer.id);
+      
+      // Join all voice channel rooms in the server to receive voice events
+      const voiceChannels = selectedServer.channels.filter((channel: any) => channel.type === 'voice');
+      console.log('Dashboard: Joining', voiceChannels.length, 'voice channel rooms:', voiceChannels.map((c: any) => ({ id: c.id, name: c.name })));
+      voiceChannels.forEach((channel: any) => {
+        socket.emit('join', channel.id);
+        console.log('Dashboard: Joined voice channel room:', channel.id, channel.name);
+      });
     }
     
     // Join the channel room when channel changes
     if (selectedChannel?.id) {
-      console.log('Attempting to join channel room:', selectedChannel.id);
       socket.emit('join', selectedChannel.id);
-      console.log('Joined channel room:', selectedChannel.id);
+      console.log('Dashboard: Joined channel room:', selectedChannel.id);
     }
     
     // Cleanup when component unmounts or dependencies change
     return () => {
+      console.log('Dashboard: Cleaning up room joining');
       if (selectedChannel?.id) {
         socket.emit('leave', selectedChannel.id);
-        console.log('Left channel room:', selectedChannel.id);
+        console.log('Dashboard: Left channel room:', selectedChannel.id);
+      }
+      
+      // Leave all voice channel rooms when server changes
+      if (selectedServer?.id) {
+        const voiceChannels = selectedServer.channels.filter((channel: any) => channel.type === 'voice');
+        voiceChannels.forEach((channel: any) => {
+          socket.emit('leave', channel.id);
+          console.log('Dashboard: Left voice channel room:', channel.id);
+        });
       }
     };
-  }, [selectedServer?.id, selectedChannel?.id]);
+  }, [selectedServer?.id, selectedChannel?.id, socket, socket?.connected]);
 
-  // Cleanup socket on unmount
-  useEffect(() => {
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        console.log('Socket disconnected on unmount');
-      }
-    };
-  }, []);
+
 
   const handleSendMessage = async (message: string) => {
     if (!selectedChannel?.id || !user) return;
@@ -491,7 +690,7 @@ export default function Dashboard() {
   };
 
   const handleTyping = (isTyping: boolean) => {
-    console.log('Typing:', isTyping);
+    // console.log('Typing:', isTyping);
   };
 
   const handleReactionAdd = async (messageId: string, emoji: string) => {
@@ -663,7 +862,6 @@ export default function Dashboard() {
           type: data.type 
         });
         
-        console.log('Channel created successfully:', newChannel);
         // Socket event will handle the UI update
         setSelectedChannel(newChannel);
       } else if (data.id) {
@@ -718,7 +916,6 @@ export default function Dashboard() {
 
   // Test function to manually add a channel
   const testAddChannel = () => {
-    console.log('=== TESTING MANUAL CHANNEL ADD ===');
     const testChannel = {
       id: `test-${Date.now()}`,
       name: 'Test Voice Channel',
@@ -729,143 +926,158 @@ export default function Dashboard() {
       updatedAt: new Date()
     };
     
-    console.log('Adding test channel:', testChannel);
     setServers(prev => {
       const updated = prev.map(server => 
         server.id === selectedServer?.id 
           ? { ...server, channels: [...server.channels, testChannel] }
           : server
       );
-      console.log('Updated servers with test channel:', updated);
       return updated;
     });
   };
 
   return (
-    <ProtectedRoute>
-      <div className="h-screen bg-gray-900 flex">
-        {/* Server Sidebar */}
-        <div className="w-16 bg-gray-800 flex flex-col items-center py-4 space-y-4">
-          {/* Home Server */}
-          <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors">
-            <MessageCircle className="w-6 h-6 text-white" />
-          </div>
-          
-          <Separator className="w-8 bg-gray-600" />
-          
-          {/* Server List */}
-          {servers.map((server) => (
-            <div
-              key={server.id}
-              onClick={() => setSelectedServer(server)}
-              className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all ${
-                selectedServer?.id === server.id 
-                  ? 'bg-purple-600 rounded-2xl' 
-                  : 'bg-gray-700 hover:bg-gray-600 hover:rounded-2xl'
-              }`}
-            >
-              <span className="text-xl">{server.icon || '🟣'}</span>
+    <>
+      {servers.length === 0 ? (
+        // Show GetStartedCard when no servers are present
+        <div className="h-max bg-gray-900 flex">
+          {/* Server Sidebar - Keep it minimal for onboarding */}
+          <div className="w-16 bg-gray-800 flex flex-col items-center py-4 space-y-4">
+            {/* Home Server */}
+            <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors">
+              <MessageCircle className="w-6 h-6 text-white" />
             </div>
-          ))}
-          
-          {/* Add Server */}
-          <div 
-            className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-600 transition-colors"
-            onClick={() => setShowCreateServerModal(true)}
-          >
-            <Plus className="w-6 h-6 text-gray-400" />
-          </div>
-        </div>
-
-      {/* Channel Sidebar */}
-      <div className="w-60 bg-gray-800 flex flex-col">
-        {/* Server Header */}
-        <div className="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4">
-          <h2 className="text-white font-semibold">{selectedServer?.name || 'Select a Server'}</h2>
-          <div className="flex items-center space-x-2">
-            <NotificationCenter />
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setShowServerSettings(true)}
-              className="text-gray-400 hover:bg-gray-700/50 hover:text-white"
+            
+            <Separator className="w-8 bg-gray-600" />
+            
+            {/* Add Server - Highlighted for onboarding */}
+            <div 
+              className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors shadow-lg animate-pulse"
+              onClick={() => setShowCreateServerModal(true)}
             >
-              <Settings className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-
-        {/* Channel List */}
-        <div className="flex-1 p-3">
-          <div className="mb-6">
-            <div className="flex items-center justify-between text-gray-400 text-xs font-semibold px-3 mb-3 uppercase tracking-wider">
-              <span>Text Channels</span>
-              {selectedServer?.ownerId === user?.id && (
-                <Button 
-                  size="icon" 
-                  variant="ghost" 
-                  onClick={openCreateTextChannel} 
-                  className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 rounded-md transition-all duration-200"
-                >
-                  <Plus className="w-3 h-3" />
-                </Button>
-              )}
+              <Plus className="w-6 h-6 text-white" />
             </div>
-            <div className="space-y-1">
-              {selectedServer?.channels
-                .filter((channel: any) => channel.type === 'text')
-                .map((channel: any) => (
-                  <div
-                    key={channel.id}
-                    onClick={() => setSelectedChannel(channel)}
-                    className={`group flex items-center space-x-2 px-3 py-2 rounded-md cursor-pointer transition-all duration-200 ${
-                      selectedChannel?.id === channel.id 
-                        ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30' 
-                        : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
-                    }`}
+          </div>
+
+          {/* GetStartedCard takes the rest of the space */}
+          <GetStartedCard onCreateServer={() => setShowCreateServerModal(true)} />
+        </div>
+      ) : (
+        // Show normal dashboard when servers are present
+        <div className="h-screen bg-gray-900 flex">
+          {/* Server Sidebar */}
+          <div className="w-16 bg-gray-800 flex flex-col items-center py-4 space-y-4">
+            {/* Home Server */}
+            <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors">
+              <MessageCircle className="w-6 h-6 text-white" />
+            </div>
+            
+            <Separator className="w-8 bg-gray-600" />
+            
+            {/* Server List */}
+            {servers.map((server) => (
+              <div
+                key={server.id}
+                onClick={() => setSelectedServer(server)}
+                className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all ${
+                  selectedServer?.id === server.id 
+                    ? 'bg-purple-600 rounded-2xl' 
+                    : 'bg-gray-700 hover:bg-gray-600 hover:rounded-2xl'
+                }`}
+              >
+                <span className="text-xl">{server.icon || '🟣'}</span>
+              </div>
+            ))}
+            
+            {/* Add Server */}
+            <div 
+              className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-600 transition-colors"
+              onClick={() => setShowCreateServerModal(true)}
+            >
+              <Plus className="w-6 h-6 text-gray-400" />
+            </div>
+          </div>
+
+        {/* Channel Sidebar */}
+        <div className="w-60 bg-gray-800 flex flex-col">
+          {/* Server Header */}
+          <div className="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4">
+            <h2 className="text-white font-semibold">{selectedServer?.name || 'Select a Server'}</h2>
+            <div className="flex items-center space-x-2">
+              <NotificationCenter />
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setShowServerSettings(true)}
+                className="text-gray-400 hover:bg-gray-700/50 hover:text-white"
+              >
+                <Settings className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Channel List */}
+          <div className="flex-1 p-3">
+            <div className="mb-6">
+              <div className="flex items-center justify-between text-gray-400 text-xs font-semibold px-3 mb-3 uppercase tracking-wider">
+                <span>Text Channels</span>
+                {selectedServer?.ownerId === user?.id && (
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    onClick={openCreateTextChannel} 
+                    className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 rounded-md transition-all duration-200"
                   >
-                    <div className="flex items-center space-x-2 flex-1">
-                      <Hash className={`w-4 h-4 ${selectedChannel?.id === channel.id ? 'text-purple-400' : 'text-gray-500'}`} />
-                      <span className="text-sm font-medium truncate">{channel.name}</span>
-                    </div>
-                    
-                    {selectedServer?.ownerId === user?.id && (
-                      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          onClick={e => { e.stopPropagation(); openEditChannel(channel); }} 
-                          className="hover:text-yellow-400 hover:bg-yellow-400/10 w-6 h-6 rounded-md transition-all duration-200"
-                        >
-                          <Edit className="w-3 h-3" />
-                        </Button>
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          onClick={e => { e.stopPropagation(); handleDeleteChannel(channel.id); }} 
-                          className="hover:text-red-400 hover:bg-red-400/10 w-6 h-6 rounded-md transition-all duration-200"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                    <Plus className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-1">
+                {selectedServer?.channels
+                  .filter((channel: any) => channel.type === 'text')
+                  .map((channel: any) => (
+                    <div
+                      key={channel.id}
+                      onClick={() => setSelectedChannel(channel)}
+                      className={`group flex items-center space-x-2 px-3 py-2 rounded-md cursor-pointer transition-all duration-200 ${
+                        selectedChannel?.id === channel.id 
+                          ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30' 
+                          : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 flex-1">
+                        <Hash className={`w-4 h-4 ${selectedChannel?.id === channel.id ? 'text-purple-400' : 'text-gray-500'}`} />
+                        <span className="text-sm font-medium truncate">{channel.name}</span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      
+                      {selectedServer?.ownerId === user?.id && (
+                        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button 
+                            size="icon" 
+                            variant="ghost" 
+                            onClick={e => { e.stopPropagation(); openEditChannel(channel); }} 
+                            className="hover:text-yellow-400 hover:bg-yellow-400/10 w-6 h-6 rounded-md transition-all duration-200"
+                          >
+                            <Edit className="w-3 h-3" />
+                          </Button>
+                          <Button 
+                            size="icon" 
+                            variant="ghost" 
+                            onClick={e => { e.stopPropagation(); handleDeleteChannel(channel.id); }} 
+                            className="hover:text-red-400 hover:bg-red-400/10 w-6 h-6 rounded-md transition-all duration-200"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
             </div>
-          </div>
 
-          <div className="mb-6">
-            <div className="flex items-center justify-between text-gray-400 text-xs font-semibold px-3 mb-3 uppercase tracking-wider">
-              <span>Voice Channels</span>
-              <div className="flex items-center space-x-2">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={testAddChannel}
-                  className="text-xs"
-                >
-                  Test
-                </Button>
+            <div className="mb-6">
+              <div className="flex items-center justify-between text-gray-400 text-xs font-semibold px-3 mb-3 uppercase tracking-wider">
+                <span>Voice Channels</span>
                 {selectedServer?.ownerId === user?.id && (
                   <Button 
                     size="icon" 
@@ -877,62 +1089,63 @@ export default function Dashboard() {
                   </Button>
                 )}
               </div>
-            </div>
-            <div className="space-y-1">
-              {(() => {
-                const voiceChannels = selectedServer?.channels.filter((channel: any) => channel.type === 'voice');
-                console.log('Voice channels:', voiceChannels);
-                console.log('All channels:', selectedServer?.channels);
-                return voiceChannels?.map((channel: any) => (
-                  <div
-                    key={channel.id}
-                    className="group flex items-center space-x-2 px-3 py-2 rounded-md cursor-pointer text-gray-400 hover:bg-gray-700/50 hover:text-gray-200 transition-all duration-200"
-                  >
-                    <Volume2 className="w-4 h-4 text-gray-500" />
-                    <span className="text-sm font-medium truncate">{channel.name}</span>
-                  </div>
-                ));
-              })()}
+              <div className="space-y-1">
+                {(() => {
+                  const voiceChannels = selectedServer?.channels.filter((channel: any) => channel.type === 'voice');
+                  return voiceChannels?.map((channel: any) => (
+                    <VoiceChannel
+                      key={channel.id}
+                      channel={channel}
+                      currentUser={user}
+                      participants={voiceChannelParticipants[channel.id] || []}
+                      currentVoiceChannel={currentVoiceChannel}
+                      onJoin={(channelId) => {
+                        setCurrentVoiceChannel(channelId);
+                      }}
+                      onLeave={() => {
+                        setCurrentVoiceChannel(null);
+                      }}
+                    />
+                  ));
+                })()}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* User Info */}
-        <div className="h-16 bg-gray-700 flex items-center justify-between px-4">
-          <div className="flex items-center space-x-2">
-            <Avatar className="w-8 h-8">
-              <AvatarImage src={user?.avatar || ''} />
-              <AvatarFallback>{user?.username ? user.username[0].toUpperCase() : '?'}</AvatarFallback>
-            </Avatar>
-            <div>
-              <p className="text-white text-sm font-medium">{user?.username || 'Unknown'}</p>
-              <p className="text-gray-400 text-xs">#{user?.discriminator || '0000'}</p>
+          {/* User Info */}
+          <div className="h-16 bg-gray-700 flex items-center justify-between px-4">
+            <div className="flex items-center space-x-2">
+              <Avatar className="w-8 h-8">
+                <AvatarImage src={user?.avatar || ''} />
+                <AvatarFallback>{user?.username ? user.username[0].toUpperCase() : '?'}</AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="text-white text-sm font-medium">{user?.username || 'Unknown'}</p>
+                <p className="text-gray-400 text-xs">#{user?.discriminator || '0000'}</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-1">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setShowUserProfile(!showUserProfile)}
+                className="text-gray-400 hover:text-white"
+              >
+                <User className="w-4 h-4" />
+              </Button>
+              <VoiceControls />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLogout}
+                className="text-gray-400 hover:text-red-500"
+                title="Log out"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
             </div>
           </div>
-          <div className="flex items-center space-x-1">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setShowUserProfile(!showUserProfile)}
-              className="text-gray-400 hover:text-white"
-            >
-              <User className="w-4 h-4" />
-            </Button>
-            <Mic className="w-4 h-4 text-gray-400 cursor-pointer hover:text-white" />
-            <Headphones className="w-4 h-4 text-gray-400 cursor-pointer hover:text-white" />
-            <Settings className="w-4 h-4 text-gray-400 cursor-pointer hover:text-white" />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="text-gray-400 hover:text-red-500"
-              title="Log out"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
-          </div>
         </div>
-      </div>
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col bg-gray-900">
@@ -1033,8 +1246,8 @@ export default function Dashboard() {
             />
           </div>
         </div>
-
-                
+      </div>
+      )}
 
       {/* Create Server Modal */}
       <CreateServerModal
@@ -1065,7 +1278,6 @@ export default function Dashboard() {
         } : undefined}
         serverId={selectedServer?.id}
       />
-    </div>
-    </ProtectedRoute>
+    </>
   );
 } 

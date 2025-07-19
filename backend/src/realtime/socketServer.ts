@@ -3,6 +3,7 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { authenticateSocket } from './socketAuth';
 import { onlineUsersService } from './onlineUsers';
+import { voiceRoomManager } from './voiceRoomManager';
 import { prisma } from '../lib/db';
 
 /**
@@ -53,7 +54,8 @@ export function initSocketServer(server: HttpServer) {
       getUserServers(socket.user.id).then(servers => {
         // Emit user online event only to members of the same servers
         servers.forEach(server => {
-          socket.to(server.id).emit('user:online', {
+          console.log(`Emitting user:online event for user ${socket.user.username} to server ${server.id}`);
+          getIO().to(server.id).emit('user:online', {
             userId: socket.user.id,
             username: socket.user.username,
             discriminator: socket.user.discriminator,
@@ -87,6 +89,41 @@ export function initSocketServer(server: HttpServer) {
       console.log(`User ${socket.id} left server ${serverId}`);
     });
 
+    // Voice channel events
+    socket.on('voice:join', async (channelId: string) => {
+      console.log('Voice join event received for channel:', channelId, 'from user:', socket.user?.username);
+      const result = await voiceRoomManager.joinVoiceChannel(socket, channelId);
+      
+      console.log('Voice join result:', result);
+      
+      if (result.success) {
+        socket.emit('voice:joined', {
+          channelId,
+          participants: result.participants
+        });
+      } else {
+        socket.emit('voice:error', { error: result.error });
+      }
+    });
+
+    socket.on('voice:leave', async () => {
+      console.log('Voice leave event received from user:', socket.user?.username);
+      const result = await voiceRoomManager.leaveVoiceChannel(socket);
+      console.log('Voice leave result:', result);
+      if (result.success) {
+        socket.emit('voice:left');
+      } else {
+        socket.emit('voice:error', { error: result.error });
+      }
+    });
+
+    socket.on('voice:updateState', async (updates: { isMuted?: boolean; isDeafened?: boolean; isSpeaking?: boolean }) => {
+      const result = await voiceRoomManager.updateVoiceState(socket, updates);
+      if (!result.success) {
+        socket.emit('voice:error', { error: result.error });
+      }
+    });
+
     // Handle new messages from clients
     socket.on('message:new', (data: any) => {
       // Broadcast message to all clients in the same channel
@@ -97,15 +134,17 @@ export function initSocketServer(server: HttpServer) {
     socket.on('disconnect', () => {
       console.log('User disconnected:', socket.id);
       
-      // Remove user from online users
+      // Remove user from online users and voice channels
       if (socket.user) {
         onlineUsersService.removeUser(socket.id);
+        voiceRoomManager.handleUserDisconnect(socket);
         
         // Get all servers the user was a member of
         getUserServers(socket.user.id).then(servers => {
           // Emit user offline event only to members of the same servers
           servers.forEach(server => {
-            socket.to(server.id).emit('user:offline', {
+            console.log(`Emitting user:offline event for user ${socket.user.username} to server ${server.id}`);
+            getIO().to(server.id).emit('user:offline', {
               userId: socket.user.id,
               username: socket.user.username,
               discriminator: socket.user.discriminator,
