@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiService } from '@/services/api';
-import { useSocket } from './useSocket';
+import { useSocket } from '@/contexts/SocketContext';
 
 interface OnlineUser {
   userId: string;

@@ -22,8 +22,8 @@ const OnlineUsersSidebar: React.FC<OnlineUsersSidebarProps> = ({ serverId, class
   const { onlineUsers, isLoading, error } = useOnlineUsers({ serverId });
 
   return (
-    <div className={`w-60 bg-gray-800 border-l border-gray-700 p-4 flex-shrink-0 ${className || ''}`}>
-      <h4 className="text-gray-400 text-xs font-semibold mb-3">ONLINE — {isLoading ? '...' : onlineUsers.length}</h4>
+    <div className={`w-full h-full bg-gray-800 border-l border-gray-700 p-4 lg:p-6 flex-shrink-0 overflow-y-auto ${className || ''}`}>
+      <h4 className="text-gray-400 text-xs lg:text-sm font-semibold mb-3">ONLINE — {isLoading ? '...' : onlineUsers.length}</h4>
       {error && (
         <div className="text-red-400 text-xs mb-2">{error}</div>
       )}
@@ -32,9 +32,9 @@ const OnlineUsersSidebar: React.FC<OnlineUsersSidebarProps> = ({ serverId, class
           <div className="space-y-2">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="flex items-center space-x-2">
-                <Skeleton className="w-6 h-6 rounded-full" />
+                <Skeleton className="w-6 h-6 lg:w-8 lg:h-8 rounded-full" />
                 <div className="flex-1">
-                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 lg:h-5 w-24 lg:w-32" />
                 </div>
               </div>
             ))}
@@ -44,16 +44,16 @@ const OnlineUsersSidebar: React.FC<OnlineUsersSidebarProps> = ({ serverId, class
         ) : (
           onlineUsers.map((user: any, index: number) => (
             <div key={index} className="flex items-center space-x-2">
-              <div className="relative">
-                <Avatar className="w-6 h-6">
+              <div className="relative flex-shrink-0">
+                <Avatar className="w-6 h-6 lg:w-8 lg:h-8">
                   <AvatarImage src={user.avatar} />
                   <AvatarFallback>{user.username[0].toUpperCase()}</AvatarFallback>
                 </Avatar>
-                <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-gray-800 ${getStatusColor('online')}`} />
+                <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 lg:w-4 lg:h-4 rounded-full border-2 border-gray-800 ${getStatusColor('online')}`} />
               </div>
-              <div className="flex items-center space-x-1">
+              <div className="flex items-center space-x-1 min-w-0 flex-1">
                 {/* Optionally show role icon if available: getRoleIcon(user.role) */}
-                <span className="text-gray-300 text-sm">{user.username}</span>
+                <span className="text-gray-300 text-sm lg:text-base truncate">{user.username}</span>
               </div>
             </div>
           ))

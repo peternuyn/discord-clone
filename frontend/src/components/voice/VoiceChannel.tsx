@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Volume2, Mic, MicOff, Headphones, HeadphoneOff, Users, Crown, Settings } from 'lucide-react';
-import { useSocket } from '@/hooks/useSocket';
+import { useSocket } from '@/contexts/SocketContext';
 
 interface VoiceParticipant {
   userId: string;
@@ -35,7 +35,7 @@ interface VoiceChannelProps {
   onLeave?: () => void;
 }
 
-export function VoiceChannel({ 
+export const VoiceChannel = React.memo(function VoiceChannel({ 
   channel, 
   isSelected = false, 
   currentUser,
@@ -102,16 +102,15 @@ export function VoiceChannel({
       console.log('VoiceChannel: Current voice channel:', currentVoiceChannel);
       console.log('VoiceChannel: This channel ID:', channel.id);
       
-      // Only handle the leave event if this is the channel the user was in
-      if (currentVoiceChannel === channel.id) {
+      // Always handle the leave event if the user was in this channel
+      if (isInChannel) {
         setIsJoining(false);
         setIsLeaving(false);
         setIsInChannel(false);
-        
-        console.log('VoiceChannel: isInChannel after:', false);
+        console.log('VoiceChannel: Processed leave event for channel:', channel.name);
         onLeaveRef.current?.();
       } else {
-        console.log('VoiceChannel: Ignoring voice:left event - not the current voice channel');
+        console.log('VoiceChannel: Ignoring voice:left event - user not in this channel');
       }
     };
 
@@ -140,7 +139,7 @@ export function VoiceChannel({
       socket.off('voice:left', handleVoiceLeft);
       socket.off('voice:error', handleVoiceError);
     };
-  }, [socket, channel.id, channel.name, currentUser?.username]);
+  }, [socket, channel.id, channel.name, currentUser?.username, isInChannel, currentVoiceChannel]);
 
   const handleJoinVoice = () => {
     if (!socket || isJoining || isInChannel) {
@@ -148,8 +147,9 @@ export function VoiceChannel({
       return;
     }
     
-    console.log('VoiceChannel: Sending voice:join request for channel:', channel.name);
+    console.log('VoiceChannel: Sending join and voice:join request for channel:', channel.name);
     setIsJoining(true);
+    socket.emit('join', channel.id);
     socket.emit('voice:join', channel.id);
   };
 
@@ -189,7 +189,8 @@ export function VoiceChannel({
     
     // Prevent multiple rapid clicks
     setIsLeaving(true);
-    console.log(`VoiceChannel: Sending voice:leave request for channel: ${channel.name}`);
+    console.log(`VoiceChannel: Sending leave and voice:leave request for channel: ${channel.name}`);
+    socket?.emit('leave', channel.id);
     socket?.emit('voice:leave');
     
     // Add a timeout to reset isLeaving if no response is received
@@ -451,4 +452,4 @@ export function VoiceChannel({
       </div>
     </TooltipProvider>
   );
-} 
+}); 

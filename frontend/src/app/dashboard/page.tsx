@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -18,7 +18,7 @@ import { VoiceChannel } from '@/components/voice/VoiceChannel';
 import { VoiceControls } from '@/components/voice/VoiceControls';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOnlineUsers } from '@/hooks/useOnlineUsers';
-import { useSocket } from '@/hooks/useSocket';
+import { useSocket } from '@/contexts/SocketContext';
 import { apiService } from '@/services/api';
 import { 
   MessageCircle, 
@@ -273,35 +273,32 @@ export default function Dashboard() {
     console.log('Dashboard: Voice user joined event received:', data);
     
     setVoiceChannelParticipants(prev => {
-      const updated = { ...prev };
-      
+      const prevParticipants = prev[data.channelId] || [];
       // Remove user from any other voice channels first
+      let changed = false;
+      const updated = { ...prev };
       Object.keys(updated).forEach(channelId => {
         if (channelId !== data.channelId) {
-          updated[channelId] = updated[channelId].filter(p => p.userId !== data.userId);
+          const filtered = updated[channelId].filter(p => p.userId !== data.userId);
+          if (filtered.length !== updated[channelId].length) {
+            updated[channelId] = filtered;
+            changed = true;
+          }
         }
       });
-      
-      // Add user to the target channel
-      if (!updated[data.channelId]) {
-        updated[data.channelId] = [];
-      }
-      
-      const existingIndex = updated[data.channelId].findIndex(p => p.userId === data.userId);
-      if (existingIndex === -1) {
-        updated[data.channelId].push({
+      // Add user to the target channel if not already present
+      if (!prevParticipants.find(p => p.userId === data.userId)) {
+        updated[data.channelId] = [...prevParticipants, {
           userId: data.userId,
           username: data.username,
           discriminator: data.discriminator,
           avatar: data.avatar,
           socketId: data.socketId,
           joinedAt: new Date(data.joinedAt)
-        });
-        console.log('Dashboard: Added user', data.username, 'to channel', data.channelId);
+        }];
+        changed = true;
       }
-      
-      console.log('Dashboard: Final voiceChannelParticipants after user joined:', updated);
-      return updated;
+      return changed ? updated : prev;
     });
   };
 
@@ -570,14 +567,6 @@ export default function Dashboard() {
     if (selectedServer?.id) {
       socket.emit('joinServer', selectedServer.id);
       console.log('Dashboard: Joined server room:', selectedServer.id);
-      
-      // Join all voice channel rooms in the server to receive voice events
-      const voiceChannels = selectedServer.channels.filter((channel: any) => channel.type === 'voice');
-      console.log('Dashboard: Joining', voiceChannels.length, 'voice channel rooms:', voiceChannels.map((c: any) => ({ id: c.id, name: c.name })));
-      voiceChannels.forEach((channel: any) => {
-        socket.emit('join', channel.id);
-        console.log('Dashboard: Joined voice channel room:', channel.id, channel.name);
-      });
     }
     
     // Join the channel room when channel changes
@@ -593,15 +582,7 @@ export default function Dashboard() {
         socket.emit('leave', selectedChannel.id);
         console.log('Dashboard: Left channel room:', selectedChannel.id);
       }
-      
-      // Leave all voice channel rooms when server changes
-      if (selectedServer?.id) {
-        const voiceChannels = selectedServer.channels.filter((channel: any) => channel.type === 'voice');
-        voiceChannels.forEach((channel: any) => {
-          socket.emit('leave', channel.id);
-          console.log('Dashboard: Left voice channel room:', channel.id);
-        });
-      }
+      // No need to leave all voice channel rooms here
     };
   }, [selectedServer?.id, selectedChannel?.id, socket, socket?.connected]);
 
@@ -1073,6 +1054,18 @@ export default function Dashboard() {
     });
   };
 
+  const memoizedVoiceParticipants = useMemo(() => {
+    const result: Record<string, any[]> = {};
+    if (selectedServer?.channels) {
+      selectedServer.channels.forEach((channel: any) => {
+        if (channel.type === 'voice') {
+          result[channel.id] = voiceChannelParticipants[channel.id] || [];
+        }
+      });
+    }
+    return result;
+  }, [selectedServer?.channels, voiceChannelParticipants]);
+
   return (
     <>
       {servers.length === 0 ? (
@@ -1103,10 +1096,10 @@ export default function Dashboard() {
         // Show normal dashboard when servers are present
         <div className="h-screen bg-gray-900 flex">
           {/* Server Sidebar */}
-          <div className="w-16 bg-gray-800 flex flex-col items-center py-4 space-y-4">
+          <div className="w-16 lg:w-20 bg-gray-800 flex flex-col items-center py-4 space-y-4 flex-shrink-0">
             {/* Home Server */}
-            <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors">
-              <MessageCircle className="w-6 h-6 text-white" />
+            <div className="w-12 h-12 lg:w-14 lg:h-14 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors">
+              <MessageCircle className="w-6 h-6 lg:w-7 lg:h-7 text-white" />
             </div>
             
             <Separator className="w-8 bg-gray-600" />
@@ -1116,30 +1109,30 @@ export default function Dashboard() {
               <div
                 key={server.id}
                 onClick={() => setSelectedServer(server)}
-                className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all ${
+                className={`w-12 h-12 lg:w-14 lg:h-14 rounded-full flex items-center justify-center cursor-pointer transition-all ${
                   selectedServer?.id === server.id 
                     ? 'bg-purple-600 rounded-2xl' 
                     : 'bg-gray-700 hover:bg-gray-600 hover:rounded-2xl'
                 }`}
               >
-                <span className="text-xl">{server.icon || '🟣'}</span>
+                <span className="text-xl lg:text-2xl">{server.icon || '🟣'}</span>
               </div>
             ))}
             
             {/* Add Server */}
             <div 
-              className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-600 transition-colors"
+              className="w-12 h-12 lg:w-14 lg:h-14 bg-gray-700 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-600 transition-colors"
               onClick={() => setShowCreateServerModal(true)}
             >
-              <Plus className="w-6 h-6 text-gray-400" />
+              <Plus className="w-6 h-6 lg:w-7 lg:h-7 text-gray-400" />
             </div>
           </div>
 
         {/* Channel Sidebar */}
-        <div className="w-60 bg-gray-800 flex flex-col">
+        <div className="w-60 lg:w-72 xl:w-80 2xl:w-96 bg-gray-800 flex flex-col flex-shrink-0">
           {/* Server Header */}
-          <div className="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4">
-            <h2 className="text-white font-semibold">{selectedServer?.name || 'Select a Server'}</h2>
+          <div className="h-12 lg:h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4">
+            <h2 className="text-white font-semibold text-sm lg:text-base truncate">{selectedServer?.name || 'Select a Server'}</h2>
             <div className="flex items-center space-x-2">
               <NotificationCenter />
               <Button 
@@ -1148,24 +1141,24 @@ export default function Dashboard() {
                 onClick={() => setShowServerSettings(true)}
                 className="text-gray-400 hover:bg-gray-700/50 hover:text-white"
               >
-                <Settings className="w-4 h-4" />
+                <Settings className="w-4 h-4 lg:w-5 lg:h-5" />
               </Button>
             </div>
           </div>
 
           {/* Channel List */}
-          <div className="flex-1 p-3">
+          <div className="flex-1 p-3 lg:p-4">
             <div className="mb-6">
-              <div className="flex items-center justify-between text-gray-400 text-xs font-semibold px-3 mb-3 uppercase tracking-wider">
+              <div className="flex items-center justify-between text-gray-400 text-xs lg:text-sm font-semibold px-3 mb-3 uppercase tracking-wider">
                 <span>Text Channels</span>
                 {selectedServer?.ownerId === user?.id && (
                   <Button 
                     size="icon" 
                     variant="ghost" 
                     onClick={openCreateTextChannel} 
-                    className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 rounded-md transition-all duration-200"
+                    className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                   >
-                    <Plus className="w-3 h-3" />
+                    <Plus className="w-3 h-3 lg:w-4 lg:h-4" />
                   </Button>
                 )}
               </div>
@@ -1182,28 +1175,28 @@ export default function Dashboard() {
                           : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
                       }`}
                     >
-                      <div className="flex items-center space-x-2 flex-1">
-                        <Hash className={`w-4 h-4 ${selectedChannel?.id === channel.id ? 'text-purple-400' : 'text-gray-500'}`} />
-                        <span className="text-sm font-medium truncate">{channel.name}</span>
+                      <div className="flex items-center space-x-2 flex-1 min-w-0">
+                        <Hash className={`w-4 h-4 lg:w-5 lg:h-5 flex-shrink-0 ${selectedChannel?.id === channel.id ? 'text-purple-400' : 'text-gray-500'}`} />
+                        <span className="text-sm lg:text-base font-medium truncate">{channel.name}</span>
                       </div>
                       
                       {selectedServer?.ownerId === user?.id && (
-                        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                           <Button 
                             size="icon" 
                             variant="ghost" 
                             onClick={e => { e.stopPropagation(); openEditChannel(channel); }} 
-                            className="hover:text-yellow-400 hover:bg-yellow-400/10 w-6 h-6 rounded-md transition-all duration-200"
+                            className="hover:text-yellow-400 hover:bg-yellow-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                           >
-                            <Edit className="w-3 h-3" />
+                            <Edit className="w-3 h-3 lg:w-4 lg:h-4" />
                           </Button>
                           <Button 
                             size="icon" 
                             variant="ghost" 
                             onClick={e => { e.stopPropagation(); handleDeleteChannel(channel.id); }} 
-                            className="hover:text-red-400 hover:bg-red-400/10 w-6 h-6 rounded-md transition-all duration-200"
+                            className="hover:text-red-400 hover:bg-red-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-3 h-3 lg:w-4 lg:h-4" />
                           </Button>
                         </div>
                       )}
@@ -1213,28 +1206,28 @@ export default function Dashboard() {
             </div>
 
             <div className="mb-6">
-              <div className="flex items-center justify-between text-gray-400 text-xs font-semibold px-3 mb-3 uppercase tracking-wider">
+              <div className="flex items-center justify-between text-gray-400 text-xs lg:text-sm font-semibold px-3 mb-3 uppercase tracking-wider">
                 <span>Voice Channels</span>
                 {selectedServer?.ownerId === user?.id && (
                   <Button 
                     size="icon" 
                     variant="ghost" 
                     onClick={openCreateVoiceChannel} 
-                    className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 rounded-md transition-all duration-200"
+                    className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                   >
-                    <Plus className="w-3 h-3" />
+                    <Plus className="w-3 h-3 lg:w-4 lg:h-4" />
                   </Button>
                 )}
               </div>
               <div className="space-y-1">
-                {(() => {
-                  const voiceChannels = selectedServer?.channels.filter((channel: any) => channel.type === 'voice');
-                  return voiceChannels?.map((channel: any) => (
+                {selectedServer?.channels
+                  .filter((channel: any) => channel.type === 'voice')
+                  .map((channel: any) => (
                     <VoiceChannel
                       key={channel.id}
                       channel={channel}
                       currentUser={user}
-                      participants={voiceChannelParticipants[channel.id] || []}
+                      participants={memoizedVoiceParticipants[channel.id]}
                       currentVoiceChannel={currentVoiceChannel}
                       onJoin={(channelId) => {
                         setCurrentVoiceChannel(channelId);
@@ -1243,32 +1236,31 @@ export default function Dashboard() {
                         setCurrentVoiceChannel(null);
                       }}
                     />
-                  ));
-                })()}
+                  ))}
               </div>
             </div>
           </div>
 
           {/* User Info */}
-          <div className="h-16 bg-gray-700 flex items-center justify-between px-4">
-            <div className="flex items-center space-x-2">
-              <Avatar className="w-8 h-8">
+          <div className="h-16 lg:h-18 bg-gray-700 flex items-center justify-between px-4 flex-shrink-0">
+            <div className="flex items-center space-x-2 min-w-0">
+              <Avatar className="w-8 h-8 lg:w-10 lg:h-10 flex-shrink-0">
                 <AvatarImage src={user?.avatar || ''} />
                 <AvatarFallback>{user?.username ? user.username[0].toUpperCase() : '?'}</AvatarFallback>
               </Avatar>
-              <div>
-                <p className="text-white text-sm font-medium">{user?.username || 'Unknown'}</p>
-                <p className="text-gray-400 text-xs">#{user?.discriminator || '0000'}</p>
+              <div className="min-w-0">
+                <p className="text-white text-sm lg:text-base font-medium truncate">{user?.username || 'Unknown'}</p>
+                <p className="text-gray-400 text-xs lg:text-sm">#{user?.discriminator || '0000'}</p>
               </div>
             </div>
-            <div className="flex items-center space-x-1">
+            <div className="flex items-center space-x-1 flex-shrink-0">
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={() => setShowUserProfile(!showUserProfile)}
                 className="text-gray-400 hover:text-white"
               >
-                <User className="w-4 h-4" />
+                <User className="w-4 h-4 lg:w-5 lg:h-5" />
               </Button>
               <VoiceControls />
               <Button
@@ -1278,34 +1270,34 @@ export default function Dashboard() {
                 className="text-gray-400 hover:text-red-500"
                 title="Log out"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4 lg:w-5 lg:h-5" />
               </Button>
             </div>
           </div>
         </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-gray-900">
+      <div className="flex-1 flex flex-col bg-gray-900 min-w-0">
         {/* Chat Header */}
-        <div className="h-12 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 flex-shrink-0">
-            <div className="flex items-center space-x-2">
-              <Hash className="w-5 h-5 text-gray-400" />
-              <h3 className="text-white font-semibold">{selectedChannel?.name || 'Select a Channel'}</h3>
-              <Badge variant="secondary" className="text-xs">3 online</Badge>
+        <div className="h-12 lg:h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 flex-shrink-0">
+            <div className="flex items-center space-x-2 min-w-0">
+              <Hash className="w-5 h-5 lg:w-6 lg:h-6 text-gray-400 flex-shrink-0" />
+              <h3 className="text-white font-semibold text-sm lg:text-base truncate">{selectedChannel?.name || 'Select a Channel'}</h3>
+              <Badge variant="secondary" className="text-xs lg:text-sm flex-shrink-0">3 online</Badge>
             </div>
-            <div className="flex items-center space-x-2">
-              <Bell className="w-4 h-4 text-gray-400 cursor-pointer hover:text-white" />
-              <Users className="w-4 h-4 text-gray-400 cursor-pointer hover:text-white" />
-              <Search className="w-4 h-4 text-gray-400 cursor-pointer hover:text-white" />
-              <MoreHorizontal className="w-4 h-4 text-gray-400 cursor-pointer hover:text-white" />
+            <div className="flex items-center space-x-2 flex-shrink-0">
+              <Bell className="w-4 h-4 lg:w-5 lg:h-5 text-gray-400 cursor-pointer hover:text-white" />
+              <Users className="w-4 h-4 lg:w-5 lg:h-5 text-gray-400 cursor-pointer hover:text-white" />
+              <Search className="w-4 h-4 lg:w-5 lg:h-5 text-gray-400 cursor-pointer hover:text-white" />
+              <MoreHorizontal className="w-4 h-4 lg:w-5 lg:h-5 text-gray-400 cursor-pointer hover:text-white" />
             </div>
           </div>
 
           {/* Messages and Online Users */}
           <div className="flex-1 flex overflow-hidden">
             {/* Messages Area */}
-            <div className="flex-1 flex flex-col relative">
-              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 flex flex-col relative min-w-0">
+              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 lg:p-6">
                 <div className="space-y-4">
                   {isLoadingMessages ? (
                     <div className="space-y-4">
@@ -1328,21 +1320,21 @@ export default function Dashboard() {
                     </div>
                   ) : (
                     messages.map((message, index) => (
-                    <div key={message.id || message.tempId || index} className="flex space-x-3 group hover:bg-gray-800 p-2 rounded">
-                      <Avatar className="w-10 h-10">
+                    <div key={message.id || message.tempId || index} className="flex space-x-3 group hover:bg-gray-800 p-2 lg:p-3 rounded">
+                      <Avatar className="w-10 h-10 lg:w-12 lg:h-12 flex-shrink-0">
                         <AvatarImage src={message.user?.avatar || ''} />
                         <AvatarFallback>{(message.user?.username || 'Unknown')[0].toUpperCase()}</AvatarFallback>
                       </Avatar>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center space-x-2">
-                          <span className="text-white font-medium">{message.user?.username || 'Unknown'}</span>
-                          <span className="text-gray-400 text-xs">
+                          <span className="text-white font-medium text-sm lg:text-base truncate">{message.user?.username || 'Unknown'}</span>
+                          <span className="text-gray-400 text-xs lg:text-sm flex-shrink-0">
                             {message.createdAt
                               ? new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                               : ''}
                           </span>
                         </div>
-                        <p className="text-gray-300 mt-1">{message.content}</p>
+                        <p className="text-gray-300 mt-1 text-sm lg:text-base break-words">{message.content}</p>
                         <MessageReactions 
                           reactions={message.reactions || []}
                           onReactionAdd={(emoji) => handleReactionAdd(message.id, emoji)}
@@ -1371,7 +1363,9 @@ export default function Dashboard() {
             </div>
 
             {/* Online Users */}
-            <OnlineUsersSidebar serverId={selectedServer?.id} />
+            <div className="w-60 lg:w-72 xl:w-80 2xl:w-96 flex-shrink-0">
+              <OnlineUsersSidebar serverId={selectedServer?.id} />
+            </div>
           </div>
 
           {/* Enhanced Message Input */}

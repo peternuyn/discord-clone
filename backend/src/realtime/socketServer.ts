@@ -66,9 +66,14 @@ export function initSocketServer(server: HttpServer) {
     }
 
     // Handle joining a channel room
-    socket.on('join', (channelId: string) => {
+    socket.on('join', async (channelId: string) => {
       socket.join(channelId);
       console.log(`User ${socket.id} joined channel ${channelId}`);
+      // Log sockets in the room after join
+      if (io) {
+        const sockets = await io.in(channelId).allSockets();
+        console.log(`Sockets in room ${channelId} after join:`, Array.from(sockets));
+      }
     });
 
     // Handle joining a server room
@@ -78,9 +83,14 @@ export function initSocketServer(server: HttpServer) {
     });
 
     // Handle leaving a channel room
-    socket.on('leave', (channelId: string) => {
+    socket.on('leave', async (channelId: string) => {
       socket.leave(channelId);
       console.log(`User ${socket.id} left channel ${channelId}`);
+      // Log sockets in the room after leave
+      if (io) {
+        const sockets = await io.in(channelId).allSockets();
+        console.log(`Sockets in room ${channelId} after leave:`, Array.from(sockets));
+      }
     });
 
     // Handle leaving a server room

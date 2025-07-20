@@ -134,10 +134,10 @@ class VoiceRoomManager {
         }
       });
 
-      // Emit user joined event to ALL clients in the channel (including the joiner)
+      // Emit user joined event to ALL clients in the server (not just the channel)
       const io = getIO();
       console.log(`Emitting voice:userJoined event for user ${socket.user.username} joining channel ${channelId}`);
-      io.to(channelId).emit('voice:userJoined', {
+      io.to(channel.serverId).emit('voice:userJoined', {
         channelId,
         userId: socket.user.id,
         username: socket.user.username,
@@ -187,10 +187,10 @@ class VoiceRoomManager {
       // Leave socket room
       socket.leave(currentChannelId);
 
-      // Emit user left event to ALL clients in the channel
+      // Emit user left event to ALL clients in the server (not just the channel)
       const io = getIO();
       console.log(`Emitting voice:userLeft event for user ${socket.user.username} leaving channel ${currentChannelId}`);
-      io.to(currentChannelId).emit('voice:userLeft', {
+      io.to(room.serverId).emit('voice:userLeft', {
         channelId: currentChannelId,
         userId: socket.user.id,
         socketId: socket.id
@@ -251,9 +251,9 @@ class VoiceRoomManager {
         data: updates
       });
 
-      // Notify other participants
+      // Notify other participants (now all users in the server)
       const io = getIO();
-      io.to(channelId).emit('voice:stateUpdate', {
+      io.to(room.serverId).emit('voice:stateUpdate', {
         userId: socket.user.id,
         socketId: socket.id,
         ...updates
