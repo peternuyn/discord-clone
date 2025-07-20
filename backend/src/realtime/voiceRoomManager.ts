@@ -65,7 +65,6 @@ class VoiceRoomManager {
       // Leave current voice channel if any
       const currentChannelId = this.userVoiceStates.get(socket.user.id);
       if (currentChannelId && currentChannelId !== channelId) {
-        console.log(`User ${socket.user.username} leaving channel ${currentChannelId} to join ${channelId}`);
         await this.leaveVoiceChannel(socket);
       }
 
@@ -91,19 +90,23 @@ class VoiceRoomManager {
         .filter(([_, participant]) => participant.userId === socket.user.id);
       
       existingSockets.forEach(([socketId, _]) => {
-        console.log(`Removing existing socket ${socketId} for user ${socket.user.username} in channel ${channelId}`);
         room!.participants.delete(socketId);
       });
 
-      // Create participant
+      // Get user's current voice state from database
+      const userVoiceState = await prisma.voiceState.findUnique({
+        where: { userId: socket.user.id }
+      });
+
+      // Create participant with stored voice state
       const participant: VoiceParticipant = {
         userId: socket.user.id,
         socketId: socket.id,
         username: socket.user.username,
         discriminator: socket.user.discriminator,
         avatar: socket.user.avatar,
-        isMuted: false,
-        isDeafened: false,
+        isMuted: userVoiceState?.isMuted ?? false,
+        isDeafened: userVoiceState?.isDeafened ?? false,
         isSpeaking: false,
         joinedAt: new Date()
       };
@@ -120,23 +123,19 @@ class VoiceRoomManager {
         where: { userId: socket.user.id },
         update: {
           channelId,
-          isMuted: false,
-          isDeafened: false,
-          isSpeaking: false,
           joinedAt: new Date()
         },
         create: {
           userId: socket.user.id,
           channelId,
-          isMuted: false,
-          isDeafened: false,
+          isMuted: userVoiceState?.isMuted ?? false,
+          isDeafened: userVoiceState?.isDeafened ?? false,
           isSpeaking: false
         }
       });
 
       // Emit user joined event to ALL clients in the server (not just the channel)
       const io = getIO();
-      console.log(`Emitting voice:userJoined event for user ${socket.user.username} joining channel ${channelId}`);
       io.to(channel.serverId).emit('voice:userJoined', {
         channelId,
         userId: socket.user.id,
@@ -189,7 +188,6 @@ class VoiceRoomManager {
 
       // Emit user left event to ALL clients in the server (not just the channel)
       const io = getIO();
-      console.log(`Emitting voice:userLeft event for user ${socket.user.username} leaving channel ${currentChannelId}`);
       io.to(room.serverId).emit('voice:userLeft', {
         channelId: currentChannelId,
         userId: socket.user.id,
@@ -225,45 +223,76 @@ class VoiceRoomManager {
     }
 
     try {
-      const channelId = this.userVoiceStates.get(socket.user.id);
-      if (!channelId) {
-        return { success: false, error: 'Not in a voice channel' };
-      }
-
-      const room = this.voiceRooms.get(channelId);
-      if (!room) {
-        return { success: false, error: 'Voice room not found' };
-      }
-
-      const participant = room.participants.get(socket.id);
-      if (!participant) {
-        return { success: false, error: 'Participant not found' };
-      }
-
-      // Update participant state
-      if (updates.isMuted !== undefined) participant.isMuted = updates.isMuted;
-      if (updates.isDeafened !== undefined) participant.isDeafened = updates.isDeafened;
-      if (updates.isSpeaking !== undefined) participant.isSpeaking = updates.isSpeaking;
-
-      // Update database
-      await prisma.voiceState.update({
+      // Always update the user's global voice state in the DB
+      await prisma.voiceState.upsert({
         where: { userId: socket.user.id },
-        data: updates
+        update: updates,
+        create: {
+          userId: socket.user.id,
+          channelId: null,
+          isMuted: updates.isMuted ?? false,
+          isDeafened: updates.isDeafened ?? false,
+          isSpeaking: updates.isSpeaking ?? false,
+        },
       });
 
-      // Notify other participants (now all users in the server)
-      const io = getIO();
-      io.to(room.serverId).emit('voice:stateUpdate', {
-        userId: socket.user.id,
-        socketId: socket.id,
-        ...updates
-      });
+      // If the user is in a channel, update the participant and notify others
+      const channelId = this.userVoiceStates.get(socket.user.id);
+      if (channelId) {
+        const room = this.voiceRooms.get(channelId);
+        if (room) {
+          const participant = room.participants.get(socket.id);
+          if (participant) {
+            if (updates.isMuted !== undefined) participant.isMuted = updates.isMuted;
+            if (updates.isDeafened !== undefined) participant.isDeafened = updates.isDeafened;
+            if (updates.isSpeaking !== undefined) participant.isSpeaking = updates.isSpeaking;
+
+            // Notify other participants
+            const io = getIO();
+            io.to(room.serverId).emit('voice:stateUpdate', {
+              userId: socket.user.id,
+              socketId: socket.id,
+              ...updates,
+            });
+          }
+        }
+      }
 
       return { success: true };
-
     } catch (error) {
-      console.error('Error updating voice state:', error);
+      console.error('VoiceRoomManager: Error updating voice state:', error);
       return { success: false, error: 'Failed to update voice state' };
+    }
+  }
+
+  /**
+   * Get user's current voice state
+   */
+  async getUserVoiceState(socket: Socket & { user?: any }): Promise<{ success: boolean; error?: string; state?: any }> {
+    if (!socket.user) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    try {
+      const voiceState = await prisma.voiceState.findUnique({
+        where: { userId: socket.user.id }
+      });
+
+      return { 
+        success: true, 
+        state: voiceState ? {
+          isMuted: voiceState.isMuted,
+          isDeafened: voiceState.isDeafened,
+          isSpeaking: voiceState.isSpeaking
+        } : {
+          isMuted: false,
+          isDeafened: false,
+          isSpeaking: false
+        }
+      };
+    } catch (error) {
+      console.error('VoiceRoomManager: Error getting user voice state:', error);
+      return { success: false, error: 'Failed to get user voice state' };
     }
   }
 
@@ -286,9 +315,7 @@ class VoiceRoomManager {
    * Handle user disconnection
    */
   async handleUserDisconnect(socket: Socket & { user?: any }) {
-    console.log(`User disconnect handler called for socket ${socket.id}, user: ${socket.user?.username}`);
     if (socket.user) {
-      console.log(`Processing voice channel leave for disconnected user: ${socket.user.username}`);
       await this.leaveVoiceChannel(socket);
     }
   }

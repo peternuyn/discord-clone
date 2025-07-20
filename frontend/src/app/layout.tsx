@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Discord Clone",
-  description: "A Discord clone built with Next.js and Express",
+  description: "A modern Discord clone with real-time voice and text chat",
   icons: {
     icon: '/favicon.png',
     shortcut: '/favicon.png',

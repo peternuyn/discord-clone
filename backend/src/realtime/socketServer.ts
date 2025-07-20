@@ -44,7 +44,6 @@ export function initSocketServer(server: HttpServer) {
   io.use(authenticateSocket);
 
   io.on('connection', (socket: Socket & { user?: any }) => {
-    console.log('A user connected:', socket.id);
     
     // Add user to online users if authenticated
     if (socket.user) {
@@ -54,7 +53,6 @@ export function initSocketServer(server: HttpServer) {
       getUserServers(socket.user.id).then(servers => {
         // Emit user online event only to members of the same servers
         servers.forEach(server => {
-          console.log(`Emitting user:online event for user ${socket.user.username} to server ${server.id}`);
           getIO().to(server.id).emit('user:online', {
             userId: socket.user.id,
             username: socket.user.username,
@@ -68,43 +66,34 @@ export function initSocketServer(server: HttpServer) {
     // Handle joining a channel room
     socket.on('join', async (channelId: string) => {
       socket.join(channelId);
-      console.log(`User ${socket.id} joined channel ${channelId}`);
       // Log sockets in the room after join
       if (io) {
         const sockets = await io.in(channelId).allSockets();
-        console.log(`Sockets in room ${channelId} after join:`, Array.from(sockets));
       }
     });
 
     // Handle joining a server room
     socket.on('joinServer', (serverId: string) => {
       socket.join(serverId);
-      console.log(`User ${socket.id} joined server ${serverId}`);
     });
 
     // Handle leaving a channel room
     socket.on('leave', async (channelId: string) => {
       socket.leave(channelId);
-      console.log(`User ${socket.id} left channel ${channelId}`);
       // Log sockets in the room after leave
       if (io) {
         const sockets = await io.in(channelId).allSockets();
-        console.log(`Sockets in room ${channelId} after leave:`, Array.from(sockets));
       }
     });
 
     // Handle leaving a server room
     socket.on('leaveServer', (serverId: string) => {
       socket.leave(serverId);
-      console.log(`User ${socket.id} left server ${serverId}`);
     });
 
     // Voice channel events
     socket.on('voice:join', async (channelId: string) => {
-      console.log('Voice join event received for channel:', channelId, 'from user:', socket.user?.username);
       const result = await voiceRoomManager.joinVoiceChannel(socket, channelId);
-      
-      console.log('Voice join result:', result);
       
       if (result.success) {
         socket.emit('voice:joined', {
@@ -117,9 +106,7 @@ export function initSocketServer(server: HttpServer) {
     });
 
     socket.on('voice:leave', async () => {
-      console.log('Voice leave event received from user:', socket.user?.username);
       const result = await voiceRoomManager.leaveVoiceChannel(socket);
-      console.log('Voice leave result:', result);
       if (result.success) {
         socket.emit('voice:left');
       } else {
@@ -134,6 +121,32 @@ export function initSocketServer(server: HttpServer) {
       }
     });
 
+    socket.on('voice:getState', async () => {
+      const result = await voiceRoomManager.getUserVoiceState(socket);
+      if (result.success) {
+        socket.emit('voice:stateUpdate', {
+          userId: socket.user?.id,
+          socketId: socket.id,
+          ...result.state
+        });
+      }
+    });
+
+    // WebRTC signaling events
+    socket.on('voice:signal', (data: { toUserId: string; fromUserId: string; data: any }) => {
+      
+      // Find the target user's socket
+      const targetSocket = Array.from(io!.sockets.sockets.values())
+        .find((s: any) => s.user?.id === data.toUserId);
+      
+      if (targetSocket) {
+        targetSocket.emit('voice:signal', {
+          fromUserId: data.fromUserId,
+          data: data.data
+        });
+      }
+    });
+
     // Handle new messages from clients
     socket.on('message:new', (data: any) => {
       // Broadcast message to all clients in the same channel
@@ -142,7 +155,6 @@ export function initSocketServer(server: HttpServer) {
 
     // Handle client disconnections
     socket.on('disconnect', () => {
-      console.log('User disconnected:', socket.id);
       
       // Remove user from online users and voice channels
       if (socket.user) {
@@ -153,7 +165,6 @@ export function initSocketServer(server: HttpServer) {
         getUserServers(socket.user.id).then(servers => {
           // Emit user offline event only to members of the same servers
           servers.forEach(server => {
-            console.log(`Emitting user:offline event for user ${socket.user.username} to server ${server.id}`);
             getIO().to(server.id).emit('user:offline', {
               userId: socket.user.id,
               username: socket.user.username,

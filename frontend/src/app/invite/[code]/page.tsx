@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +31,8 @@ interface InviteData {
   createdAt: string;
 }
 
-export default function InvitePage({ params }: { params: { code: string } }) {
+export default function InvitePage({ params }: { params: Promise<{ code: string }> }) {
+  const { code } = React.use(params);
   const [invite, setInvite] = useState<InviteData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
@@ -41,11 +42,11 @@ export default function InvitePage({ params }: { params: { code: string } }) {
 
   useEffect(() => {
     fetchInviteData();
-  }, [params.code]);
+  }, [code]);
 
   const fetchInviteData = async () => {
     try {
-      const response = await fetch(`/api/invites/${params.code}`);
+      const response = await fetch(`/api/invites/${code}`);
       if (!response.ok) {
         if (response.status === 404) {
           setError('Invite not found');
@@ -83,7 +84,7 @@ export default function InvitePage({ params }: { params: { code: string } }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          code: params.code,
+          code,
         }),
       });
 

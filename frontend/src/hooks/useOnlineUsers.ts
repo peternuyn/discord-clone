@@ -22,6 +22,15 @@ export function useOnlineUsers({ serverId, enableRealTime = true }: UseOnlineUse
   const [error, setError] = useState<string | null>(null);
   const { socket } = useSocket();
 
+   // User online/offline events
+   const handleUserOnline = (user: any) => {
+    console.log('Dashboard: User online event received:', user);
+  };
+
+  const handleUserOffline = (user: any) => {
+    console.log('Dashboard: User offline event received:', user);
+  };
+  
   // Fetch online users from API
   const fetchOnlineUsers = async () => {
     try {
@@ -102,5 +111,7 @@ export function useOnlineUsers({ serverId, enableRealTime = true }: UseOnlineUse
     error,
     refresh,
     count: onlineUsers.length,
+    handleUserOnline,
+    handleUserOffline,
   };
 } 
