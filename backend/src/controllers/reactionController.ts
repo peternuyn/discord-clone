@@ -93,6 +93,7 @@ export const addReaction = async (req: AuthenticatedRequest, res: Response) => {
     const aggregatedReactions = Array.from(reactionMap.values());
 
     // Emit socket event to all clients in the channel
+    console.log(`Emitting reaction:added event to channel ${message.channelId} for message ${messageId}`);
     getIO().to(message.channelId).emit('reaction:added', {
       messageId,
       reactions: aggregatedReactions
@@ -194,6 +195,7 @@ export const removeReaction = async (req: AuthenticatedRequest, res: Response) =
     const aggregatedReactions = Array.from(reactionMap.values());
 
     // Emit socket event to all clients in the channel
+    console.log(`Emitting reaction:removed event to channel ${message.channelId} for message ${messageId}`);
     getIO().to(message.channelId).emit('reaction:removed', {
       messageId,
       reactions: aggregatedReactions

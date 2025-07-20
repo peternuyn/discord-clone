@@ -122,111 +122,75 @@ export default function Dashboard() {
   };
 
   const handleReactionAdded = (data: any) => {
+    console.log('Dashboard: Reaction added event received:', data);
+    
+    // Backend sends: { messageId, reactions: aggregatedReactions }
+    // We need to find the channelId from the message cache
     setMessageCache(prev => {
-      const channelMessages = prev[data.channelId] || [];
-      const updatedMessages = channelMessages.map(msg => {
-        if (msg.id === data.messageId) {
-          const existingReaction = msg.reactions?.find((r: any) => r.emoji === data.emoji);
-          if (existingReaction) {
-            return {
-              ...msg,
-              reactions: msg.reactions.map((r: any) =>
-                r.emoji === data.emoji
-                  ? { ...r, count: r.count + 1, users: [...r.users, data.user] }
-                  : r
-              )
-            };
-          } else {
-            return {
-              ...msg,
-              reactions: [...(msg.reactions || []), {
-                emoji: data.emoji,
-                count: 1,
-                users: [data.user]
-              }]
-            };
+      const updatedCache = { ...prev };
+      
+      // Find which channel contains this message
+      Object.keys(updatedCache).forEach(channelId => {
+        const channelMessages = updatedCache[channelId] || [];
+        const messageIndex = channelMessages.findIndex(msg => msg.id === data.messageId);
+        
+        if (messageIndex !== -1) {
+          // Update the message with new reactions
+          updatedCache[channelId] = channelMessages.map((msg, index) => 
+            index === messageIndex 
+              ? { ...msg, reactions: data.reactions }
+              : msg
+          );
+          
+          // If this is the currently selected channel, update messages state too
+          if (channelId === selectedChannel?.id) {
+            setMessages(prev => prev.map(msg => 
+              msg.id === data.messageId 
+                ? { ...msg, reactions: data.reactions }
+                : msg
+            ));
           }
         }
-        return msg;
       });
       
-      return {
-        ...prev,
-        [data.channelId]: updatedMessages
-      };
+      return updatedCache;
     });
-    
-    if (data.channelId === selectedChannel?.id) {
-      setMessages(prev => {
-        return prev.map(msg => {
-          if (msg.id === data.messageId) {
-            const existingReaction = msg.reactions?.find((r: any) => r.emoji === data.emoji);
-            if (existingReaction) {
-              return {
-                ...msg,
-                reactions: msg.reactions.map((r: any) =>
-                  r.emoji === data.emoji
-                    ? { ...r, count: r.count + 1, users: [...r.users, data.user] }
-                    : r
-                )
-              };
-            } else {
-              return {
-                ...msg,
-                reactions: [...(msg.reactions || []), {
-                  emoji: data.emoji,
-                  count: 1,
-                  users: [data.user]
-                }]
-              };
-            }
-          }
-          return msg;
-        });
-      });
-    }
   };
 
   const handleReactionRemoved = (data: any) => {
+    console.log('Dashboard: Reaction removed event received:', data);
+    
+    // Backend sends: { messageId, reactions: aggregatedReactions }
+    // We need to find the channelId from the message cache
     setMessageCache(prev => {
-      const channelMessages = prev[data.channelId] || [];
-      const updatedMessages = channelMessages.map(msg => {
-        if (msg.id === data.messageId) {
-          return {
-            ...msg,
-            reactions: msg.reactions?.map((r: any) =>
-              r.emoji === data.emoji
-                ? { ...r, count: Math.max(0, r.count - 1), users: r.users.filter((u: any) => u.id !== data.user.id) }
-                : r
-            ).filter((r: any) => r.count > 0) || []
-          };
+      const updatedCache = { ...prev };
+      
+      // Find which channel contains this message
+      Object.keys(updatedCache).forEach(channelId => {
+        const channelMessages = updatedCache[channelId] || [];
+        const messageIndex = channelMessages.findIndex(msg => msg.id === data.messageId);
+        
+        if (messageIndex !== -1) {
+          // Update the message with new reactions
+          updatedCache[channelId] = channelMessages.map((msg, index) => 
+            index === messageIndex 
+              ? { ...msg, reactions: data.reactions }
+              : msg
+          );
+          
+          // If this is the currently selected channel, update messages state too
+          if (channelId === selectedChannel?.id) {
+            setMessages(prev => prev.map(msg => 
+              msg.id === data.messageId 
+                ? { ...msg, reactions: data.reactions }
+                : msg
+            ));
+          }
         }
-        return msg;
       });
       
-      return {
-        ...prev,
-        [data.channelId]: updatedMessages
-      };
+      return updatedCache;
     });
-    
-    if (data.channelId === selectedChannel?.id) {
-      setMessages(prev => {
-        return prev.map(msg => {
-          if (msg.id === data.messageId) {
-            return {
-              ...msg,
-              reactions: msg.reactions?.map((r: any) =>
-                r.emoji === data.emoji
-                  ? { ...r, count: Math.max(0, r.count - 1), users: r.users.filter((u: any) => u.id !== data.user.id) }
-                  : r
-              ).filter((r: any) => r.count > 0) || []
-            };
-          }
-          return msg;
-        });
-      });
-    }
   };
 
   const handleChannelUpdate = (updatedChannel: any) => {
@@ -695,6 +659,7 @@ export default function Dashboard() {
 
   const handleReactionAdd = async (messageId: string, emoji: string) => {
     if (!user) return;
+    
     // Optimistically update UI
     setMessages((prev: any[]) =>
       prev.map((msg: any) => {
@@ -730,15 +695,60 @@ export default function Dashboard() {
       })
     );
 
+    // Also update message cache optimistically
+    setMessageCache(prev => {
+      const updatedCache = { ...prev };
+      Object.keys(updatedCache).forEach(channelId => {
+        const channelMessages = updatedCache[channelId] || [];
+        const messageIndex = channelMessages.findIndex(msg => msg.id === messageId);
+        
+        if (messageIndex !== -1) {
+          const msg = channelMessages[messageIndex];
+          const existing = msg.reactions.find((r: any) => r.emoji === emoji);
+          
+          if (existing) {
+            if (!existing.users.some((u: any) => u.id === user.id)) {
+              updatedCache[channelId] = channelMessages.map((msg, index) => 
+                index === messageIndex 
+                  ? {
+                      ...msg,
+                      reactions: msg.reactions.map((r: any) =>
+                        r.emoji === emoji
+                          ? { ...r, count: r.count + 1, users: [...r.users, { id: user.id, username: user.username, avatar: user.avatar }] }
+                          : r
+                      )
+                    }
+                  : msg
+              );
+            }
+          } else {
+            updatedCache[channelId] = channelMessages.map((msg, index) => 
+              index === messageIndex 
+                ? {
+                    ...msg,
+                    reactions: [
+                      ...msg.reactions,
+                      {
+                        emoji,
+                        count: 1,
+                        users: [{ id: user.id, username: user.username, avatar: user.avatar }],
+                      },
+                    ]
+                  }
+                : msg
+            );
+          }
+        }
+      });
+      return updatedCache;
+    });
+
     try {
       const res = await apiService.addReaction(messageId, emoji);
-      // Replace with backend's version
-      setMessages((prev: any[]) =>
-        prev.map((msg: any) =>
-          msg.id === messageId ? { ...msg, reactions: res.updatedMessage.reactions } : msg
-        )
-      );
+      // The socket event will handle the real-time update, so we don't need to manually update here
+      console.log('Reaction added successfully:', res);
     } catch (error) {
+      console.error('Error adding reaction:', error);
       // Rollback: remove the optimistic reaction
       setMessages((prev: any[]) =>
         prev.map((msg: any) => {
@@ -755,11 +765,40 @@ export default function Dashboard() {
           };
         })
       );
+      
+      // Also rollback message cache
+      setMessageCache(prev => {
+        const updatedCache = { ...prev };
+        Object.keys(updatedCache).forEach(channelId => {
+          const channelMessages = updatedCache[channelId] || [];
+          const messageIndex = channelMessages.findIndex(msg => msg.id === messageId);
+          
+          if (messageIndex !== -1) {
+            const msg = channelMessages[messageIndex];
+            updatedCache[channelId] = channelMessages.map((msg, index) => 
+              index === messageIndex 
+                ? {
+                    ...msg,
+                    reactions: msg.reactions
+                      .map((r: any) =>
+                        r.emoji === emoji
+                          ? { ...r, count: r.count - 1, users: r.users.filter((u: any) => u.id !== user.id) }
+                          : r
+                      )
+                      .filter((r: any) => r.count > 0),
+                  }
+                : msg
+            );
+          }
+        });
+        return updatedCache;
+      });
     }
   };
 
   const handleReactionRemove = async (messageId: string, emoji: string) => {
     if (!user) return;
+    
     // Optimistically update UI
     setMessages((prev: any[]) =>
       prev.map((msg: any) => {
@@ -777,17 +816,115 @@ export default function Dashboard() {
       })
     );
 
+    // Also update message cache optimistically
+    setMessageCache(prev => {
+      const updatedCache = { ...prev };
+      Object.keys(updatedCache).forEach(channelId => {
+        const channelMessages = updatedCache[channelId] || [];
+        const messageIndex = channelMessages.findIndex(msg => msg.id === messageId);
+        
+        if (messageIndex !== -1) {
+          const msg = channelMessages[messageIndex];
+          updatedCache[channelId] = channelMessages.map((msg, index) => 
+            index === messageIndex 
+              ? {
+                  ...msg,
+                  reactions: msg.reactions
+                    .map((r: any) =>
+                      r.emoji === emoji
+                        ? { ...r, count: r.count - 1, users: r.users.filter((u: any) => u.id !== user.id) }
+                        : r
+                    )
+                    .filter((r: any) => r.count > 0),
+                }
+              : msg
+          );
+        }
+      });
+      return updatedCache;
+    });
+
     try {
       const res = await apiService.removeReaction(messageId, emoji);
-      // Replace with backend's version
-      setMessages((prev: any[]) =>
-        prev.map((msg: any) =>
-          msg.id === messageId ? { ...msg, reactions: res.updatedMessage.reactions } : msg
-        )
-      );
+      // The socket event will handle the real-time update, so we don't need to manually update here
+      console.log('Reaction removed successfully:', res);
     } catch (error) {
-      // Rollback: re-add the user's reaction (best effort, or refetch from backend if needed)
-      // For simplicity, you may want to refetch the message or show an error toast
+      console.error('Error removing reaction:', error);
+      // Rollback: re-add the user's reaction
+      setMessages((prev: any[]) =>
+        prev.map((msg: any) => {
+          if (msg.id !== messageId) return msg;
+          const existing = msg.reactions.find((r: any) => r.emoji === emoji);
+          if (existing) {
+            return {
+              ...msg,
+              reactions: msg.reactions.map((r: any) =>
+                r.emoji === emoji
+                  ? { ...r, count: r.count + 1, users: [...r.users, { id: user.id, username: user.username, avatar: user.avatar }] }
+                  : r
+              ),
+            };
+          } else {
+            return {
+              ...msg,
+              reactions: [
+                ...msg.reactions,
+                {
+                  emoji,
+                  count: 1,
+                  users: [{ id: user.id, username: user.username, avatar: user.avatar }],
+                },
+              ],
+            };
+          }
+        })
+      );
+      
+      // Also rollback message cache
+      setMessageCache(prev => {
+        const updatedCache = { ...prev };
+        Object.keys(updatedCache).forEach(channelId => {
+          const channelMessages = updatedCache[channelId] || [];
+          const messageIndex = channelMessages.findIndex(msg => msg.id === messageId);
+          
+          if (messageIndex !== -1) {
+            const msg = channelMessages[messageIndex];
+            const existing = msg.reactions.find((r: any) => r.emoji === emoji);
+            
+            if (existing) {
+              updatedCache[channelId] = channelMessages.map((msg, index) => 
+                index === messageIndex 
+                  ? {
+                      ...msg,
+                      reactions: msg.reactions.map((r: any) =>
+                        r.emoji === emoji
+                          ? { ...r, count: r.count + 1, users: [...r.users, { id: user.id, username: user.username, avatar: user.avatar }] }
+                          : r
+                      )
+                    }
+                  : msg
+              );
+            } else {
+              updatedCache[channelId] = channelMessages.map((msg, index) => 
+                index === messageIndex 
+                  ? {
+                      ...msg,
+                      reactions: [
+                        ...msg.reactions,
+                        {
+                          emoji,
+                          count: 1,
+                          users: [{ id: user.id, username: user.username, avatar: user.avatar }],
+                        },
+                      ]
+                    }
+                  : msg
+              );
+            }
+          }
+        });
+        return updatedCache;
+      });
     }
   };
 
