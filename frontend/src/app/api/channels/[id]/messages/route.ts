@@ -4,18 +4,18 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:500
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
+  const { id } = context.params;
   try {
-    // Add validation for params.id
-    if (!params.id) {
+    if (!id) {
       return NextResponse.json(
         { error: 'Channel ID is required' },
         { status: 400 }
       );
     }
 
-    const response = await fetch(`${BACKEND_URL}/api/channels/${params.id}/messages`, {
+    const response = await fetch(`${BACKEND_URL}/api/channels/${id}/messages`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -41,11 +41,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
+  const { id } = context.params;
   try {
-    // Add validation for params.id
-    if (!params.id) {
+    if (!id) {
       return NextResponse.json(
         { error: 'Channel ID is required' },
         { status: 400 }
@@ -54,7 +54,7 @@ export async function POST(
 
     const body = await request.json();
     
-    const response = await fetch(`${BACKEND_URL}/api/channels/${params.id}/messages`, {
+    const response = await fetch(`${BACKEND_URL}/api/channels/${id}/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
