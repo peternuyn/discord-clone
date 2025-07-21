@@ -64,14 +64,14 @@ export const register = async (req: Request, res: Response) => {
       }
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: 'User registered successfully',
       user
     });
 
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+     return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -132,7 +132,7 @@ export const login = async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -153,7 +153,7 @@ export const logout = async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Logout error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
