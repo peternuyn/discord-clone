@@ -2,14 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
-type Params = {
-  params: {
-    id: string;
-  };
-};
+export async function GET(request: NextRequest) {
+  const pathname = new URL(request.url).pathname;
+  const id = pathname.split('/')[4]; // Adjust if your route is deeper
 
-export async function GET(request: NextRequest, { params }: Params) {
-  const { id } = params;
   try {
     const response = await fetch(`${BACKEND_URL}/api/channels/${id}/messages`, {
       method: 'GET',
@@ -35,8 +31,10 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
-  const { id } = params;
+export async function POST(request: NextRequest) {
+  const pathname = new URL(request.url).pathname;
+  const id = pathname.split('/')[4]; // Adjust based on your route structure
+
   try {
     const body = await request.json();
 
