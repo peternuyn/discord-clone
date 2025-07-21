@@ -44,7 +44,7 @@ export const authMiddleware = async (
 
     // Add user info to request
     req.user = { id: decoded.userId };
-    next();
+    return next();
 
   } catch (error) {
     console.error('Auth middleware error:', error);

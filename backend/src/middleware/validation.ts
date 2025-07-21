@@ -28,7 +28,7 @@ const profileUpdateSchema = z.object({
 export const validateRegister = (req: Request, res: Response, next: NextFunction) => {
   try {
     registerSchema.parse(req.body);
-    next();
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
@@ -36,7 +36,7 @@ export const validateRegister = (req: Request, res: Response, next: NextFunction
         details: error.errors
       });
     }
-    next(error);
+    return next(error);
   }
 };
 
@@ -47,7 +47,7 @@ export const validateRegister = (req: Request, res: Response, next: NextFunction
 export const validateLogin = (req: Request, res: Response, next: NextFunction) => {
   try {
     loginSchema.parse(req.body);
-    next();
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
@@ -55,7 +55,7 @@ export const validateLogin = (req: Request, res: Response, next: NextFunction) =
         details: error.errors
       });
     }
-    next(error);
+    return next(error);
   }
 };
 
@@ -66,7 +66,7 @@ export const validateLogin = (req: Request, res: Response, next: NextFunction) =
 export const validateProfile = (req: Request, res: Response, next: NextFunction) => {
   try {
     profileUpdateSchema.parse(req.body);
-    next();
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({
@@ -74,6 +74,6 @@ export const validateProfile = (req: Request, res: Response, next: NextFunction)
         details: error.errors
       });
     }
-    next(error);
+    return next(error);
   }
 }; 
