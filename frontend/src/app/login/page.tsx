@@ -52,7 +52,7 @@ export default function LoginPage() {
             <MessageCircle className="w-8 h-8 text-purple-600" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Welcome back!</h1>
-          <p className="text-gray-400">We're so excited to see you again!</p>
+          <p className="text-gray-400">We are so excited to see you again!</p>
         </div>
 
         {/* Login Form */}

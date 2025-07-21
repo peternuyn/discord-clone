@@ -32,7 +32,7 @@ export default function GetStartedCard({ onCreateServer }: GetStartedCardProps) 
           </h1>
           
           <p className="text-xl text-gray-300 mb-6">
-            Ready to start your journey? Let's create your first server and connect with friends!
+            Ready to start your journey? Let&apos;s create your first server and connect with friends!
           </p>
           <div className="flex items-center justify-center space-x-4">
             <Badge variant="secondary" className="bg-purple-600/20 text-purple-300 border-purple-500/30">
@@ -50,7 +50,7 @@ export default function GetStartedCard({ onCreateServer }: GetStartedCardProps) 
         <Card className="bg-gray-800/50 border-gray-700 shadow-2xl backdrop-blur-sm">
           <CardHeader className="text-center pb-6">
             <CardTitle className="text-2xl text-white mb-2">
-              Let's get started by adding your first server
+              Let&apos;s get started by adding your first server
             </CardTitle>
             <CardDescription className="text-gray-400 text-lg">
               Create a server to organize your communities, share ideas, and stay connected

@@ -345,7 +345,7 @@ export function NotificationCenter() {
                     <Bell className="w-8 h-8 opacity-50" />
                   </div>
                   <p className="font-medium">No notifications</p>
-                  <p className="text-sm text-gray-500 mt-1">You're all caught up!</p>
+                  <p className="text-sm text-gray-500 mt-1">You are all caught up!</p>
                 </div>
               ) : (
                 notifications.map((notification) => (

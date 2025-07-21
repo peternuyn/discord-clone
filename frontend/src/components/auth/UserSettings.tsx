@@ -206,7 +206,7 @@ export function UserSettings() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>Show Online Status</Label>
-                    <p className="text-sm text-gray-400">Let others see when you're online</p>
+                    <p className="text-sm text-gray-400">Let others see when you are online</p>
                   </div>
                   <Switch 
                     checked={settings.privacy.showStatus}
