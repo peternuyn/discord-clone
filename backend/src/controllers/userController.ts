@@ -27,11 +27,11 @@ export const getUserProfile = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ user });
+    return res.json({ user });
 
   } catch (error) {
     console.error('Get user profile error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -79,14 +79,14 @@ export const updateProfile = async (req: Request, res: Response) => {
       }
     });
 
-    res.json({
+    return res.json({
       message: 'Profile updated successfully',
       user: updatedUser
     });
 
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -187,13 +187,13 @@ export const getOnlineUsersForServer = async (req: AuthenticatedRequest, res: Re
 
     const onlineUsers = await onlineUsersService.getOnlineUsersForServer(serverId);
     
-    res.json({
+    return res.json({
       onlineUsers,
       count: onlineUsers.length
     });
   } catch (error) {
     console.error('Get online users for server error:', error);
-    res.status(500).json({ error: 'Failed to get online users for server' });
+    return res.status(500).json({ error: 'Failed to get online users for server' });
   }
 };
 

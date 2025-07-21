@@ -40,10 +40,10 @@ router.get('/channels/:channelId/participants', authMiddleware, async (req: Auth
     // Get participants from voice room manager
     const participants = voiceRoomManager.getVoiceChannelParticipants(channelId);
 
-    res.json({ participants });
+    return res.json({ participants });
   } catch (error) {
     console.error('Error getting voice channel participants:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -107,10 +107,10 @@ router.get('/servers/:serverId/channels', authMiddleware, async (req: Authentica
       participants: voiceRoomManager.getVoiceChannelParticipants(channel.id)
     }));
 
-    res.json({ channels: channelsWithParticipants });
+    return res.json({ channels: channelsWithParticipants });
   } catch (error) {
     console.error('Error getting server voice channels:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

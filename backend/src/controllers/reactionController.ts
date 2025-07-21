@@ -99,7 +99,7 @@ export const addReaction = async (req: AuthenticatedRequest, res: Response) => {
       reactions: aggregatedReactions
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: 'Reaction added successfully',
       reaction,
       updatedMessage: {
@@ -109,7 +109,7 @@ export const addReaction = async (req: AuthenticatedRequest, res: Response) => {
     });
   } catch (error) {
     console.error('Add reaction error:', error);
-    res.status(500).json({ error: 'Failed to add reaction' });
+    return res.status(500).json({ error: 'Failed to add reaction' });
   }
 };
 
@@ -201,7 +201,7 @@ export const removeReaction = async (req: AuthenticatedRequest, res: Response) =
       reactions: aggregatedReactions
     });
 
-    res.json({
+    return res.json({
       message: 'Reaction removed successfully',
       updatedMessage: {
         ...updatedMessage,
@@ -210,6 +210,6 @@ export const removeReaction = async (req: AuthenticatedRequest, res: Response) =
     });
   } catch (error) {
     console.error('Remove reaction error:', error);
-    res.status(500).json({ error: 'Failed to remove reaction' });
+    return res.status(500).json({ error: 'Failed to remove reaction' });
   }
 }; 

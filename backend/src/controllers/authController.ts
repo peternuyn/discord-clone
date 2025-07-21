@@ -116,7 +116,7 @@ export const login = async (req: Request, res: Response) => {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
-    res.json({
+    return res.json({
       message: 'Login successful',
       user: {
         id: user.id,
@@ -149,7 +149,7 @@ export const logout = async (req: Request, res: Response) => {
       });
     }
 
-    res.json({ message: 'Logged out successfully' });
+    return res.json({ message: 'Logged out successfully' });
 
   } catch (error) {
     console.error('Logout error:', error);
@@ -185,10 +185,10 @@ export const getCurrentUser = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ user });
+    return res.json({ user });
 
   } catch (error) {
     console.error('Get current user error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 }; 

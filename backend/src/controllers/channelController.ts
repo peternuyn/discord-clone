@@ -9,9 +9,9 @@ export const getChannel = async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
     const channel = await prisma.channel.findUnique({ where: { id } });
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
-    res.json(channel);
+    return res.json(channel);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch channel' });
+    return res.status(500).json({ error: 'Failed to fetch channel' });
   }
 };
 
@@ -44,10 +44,10 @@ export const createChannel = async (req: AuthenticatedRequest, res: Response) =>
     
     console.log('Socket event emitted successfully');
     
-    res.status(201).json(channel);
+    return res.status(201).json(channel);
   } catch (error) {
     console.error('Error creating channel:', error);
-    res.status(500).json({ error: 'Failed to create channel' });
+    return res.status(500).json({ error: 'Failed to create channel' });
   }
 };
 
@@ -64,9 +64,9 @@ export const updateChannel = async (req: AuthenticatedRequest, res: Response) =>
     // Emit socket event to all clients in the server
     getIO().to(updated.serverId).emit('channel:update', updated);
     
-    res.json(updated);
+    return res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update channel' });
+    return res.status(500).json({ error: 'Failed to update channel' });
   }
 };
 
@@ -84,9 +84,9 @@ export const deleteChannel = async (req: AuthenticatedRequest, res: Response) =>
     // Emit socket event to all clients in the server
     getIO().to(channel.serverId).emit('channel:delete', id);
     
-    res.json({ message: 'Channel deleted' });
+    return res.json({ message: 'Channel deleted' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete channel' });
+    return res.status(500).json({ error: 'Failed to delete channel' });
   }
 };
 
@@ -148,7 +148,7 @@ export const getChannelMessages = async (req: AuthenticatedRequest, res: Respons
       where: { channelId: id },
     });
     
-    res.json({
+    return res.json({
       messages: processedMessages,
       pagination: {
         total: totalCount,
@@ -158,7 +158,7 @@ export const getChannelMessages = async (req: AuthenticatedRequest, res: Respons
       },
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch messages' });
+    return res.status(500).json({ error: 'Failed to fetch messages' });
   }
 };
 
@@ -182,8 +182,8 @@ export const createMessage = async (req: AuthenticatedRequest, res: Response) =>
     });
     // Emit socket event to all clients in the channel
     getIO().to(id).emit('message:new', { ...message, channelId: id });
-    res.status(201).json(message);
+    return res.status(201).json(message);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create message' });
+    return res.status(500).json({ error: 'Failed to create message' });
   }
 }; 

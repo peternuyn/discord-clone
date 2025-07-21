@@ -24,10 +24,10 @@ export const createInvite = async (req: AuthenticatedRequest, res: Response) => 
         expiresAt: expiresAt ? new Date(expiresAt) : null,
       },
     });
-    res.status(201).json(invite);
+    return res.status(201).json(invite);
   } catch (error) {
     console.error('Create invite error:', error);
-    res.status(500).json({ error: 'Failed to create invite.' });
+    return res.status(500).json({ error: 'Failed to create invite.' });
   }
 };
 
@@ -50,10 +50,10 @@ export const redeemInvite = async (req: AuthenticatedRequest, res: Response) => 
     if (invite.singleUse) {
       await prisma.invite.update({ where: { code }, data: { used: true, usedById: userId, usedAt: new Date() } });
     }
-    res.json({ message: 'Joined server', server: invite.server });
+    return res.json({ message: 'Joined server', server: invite.server });
   } catch (error) {
     console.error('Redeem invite error:', error);
-    res.status(500).json({ error: 'Failed to redeem invite.' });
+    return res.status(500).json({ error: 'Failed to redeem invite.' });
   }
 };
 
@@ -94,10 +94,10 @@ export const getInviteByCode = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invite already used' });
     }
 
-    res.json(invite);
+    return res.json(invite);
   } catch (error) {
     console.error('Get invite error:', error);
-    res.status(500).json({ error: 'Failed to get invite.' });
+    return res.status(500).json({ error: 'Failed to get invite.' });
   }
 };
 
@@ -113,9 +113,9 @@ export const listServerInvites = async (req: AuthenticatedRequest, res: Response
     if (!member) return res.status(403).json({ error: 'Not a server member' });
     // Optionally check for admin/owner role here
     const invites = await prisma.invite.findMany({ where: { serverId } });
-    res.json(invites);
+    return res.json(invites);
   } catch (error) {
     console.error('List invites error:', error);
-    res.status(500).json({ error: 'Failed to list invites.' });
+    return res.status(500).json({ error: 'Failed to list invites.' });
   }
 }; 
