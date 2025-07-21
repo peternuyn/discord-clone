@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
-export async function GET(
-  request: NextRequest,
-  context: { params: { id: string } }
-) {
-  const { id } = context.params;
+type Params = {
+  params: {
+    id: string;
+  };
+};
+
+export async function GET(request: NextRequest, { params }: Params) {
+  const { id } = params;
   try {
     const response = await fetch(`${BACKEND_URL}/api/channels/${id}/messages`, {
       method: 'GET',
@@ -17,7 +20,7 @@ export async function GET(
     });
 
     const data = await response.json();
-    
+
     if (!response.ok) {
       return NextResponse.json(data, { status: response.status });
     }
@@ -32,14 +35,11 @@ export async function GET(
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  context: { params: { id: string } }
-) {
-  const { id } = context.params;
+export async function POST(request: NextRequest, { params }: Params) {
+  const { id } = params;
   try {
     const body = await request.json();
-    
+
     const response = await fetch(`${BACKEND_URL}/api/channels/${id}/messages`, {
       method: 'POST',
       headers: {
@@ -50,7 +50,7 @@ export async function POST(
     });
 
     const data = await response.json();
-    
+
     if (!response.ok) {
       return NextResponse.json(data, { status: response.status });
     }
@@ -63,4 +63,4 @@ export async function POST(
       { status: 500 }
     );
   }
-} 
+}
