@@ -4,10 +4,11 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:500
 
 export async function GET(
   request: NextRequest,
-  context: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = context.params;
   try {
+    // Add validation for params.id
+    const { id } = await params;
     if (!id) {
       return NextResponse.json(
         { error: 'Channel ID is required' },
@@ -41,10 +42,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  context: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = context.params;
   try {
+    // Add validation for params.id
+    const { id } = await params;
     if (!id) {
       return NextResponse.json(
         { error: 'Channel ID is required' },
