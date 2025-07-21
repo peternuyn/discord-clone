@@ -1,44 +1,79 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET(request: NextRequest) {
-  try {
-    // Extract the invite code from the URL
-    const pathname = new URL(request.url).pathname;
-    const segments = pathname.split('/');
-    const code = segments[segments.length - 1]; // e.g., /api/invites/abc123 => 'abc123'
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
-    if (!code) {
-      return NextResponse.json({ error: 'Missing invite code' }, { status: 400 });
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // Add validation for params.id
+    if (!params.id) {
+      return NextResponse.json(
+        { error: 'Channel ID is required' },
+        { status: 400 }
+      );
     }
 
-    // TODO: Fetch invite data from your backend or DB
-    // Example response (replace this with your actual logic)
-    return NextResponse.json({ success: true, inviteCode: code });
+    const response = await fetch(`${BACKEND_URL}/api/channels/${params.id}/messages`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': request.headers.get('cookie') || '',
+      },
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status });
+    }
+
+    return NextResponse.json(data);
   } catch (error) {
-    console.error('Failed to handle invite code:', error);
+    console.error('Error fetching channel messages:', error);
     return NextResponse.json(
-      { error: 'Server error while processing invite' },
+      { error: 'Failed to fetch channel messages' },
       { status: 500 }
     );
   }
 }
 
-
-export async function POST(request: NextRequest) {
-  const pathname = new URL(request.url).pathname;
-  const segments = pathname.split('/');
-  const code = segments[segments.length - 1];
-
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
+    // Add validation for params.id
+    if (!params.id) {
+      return NextResponse.json(
+        { error: 'Channel ID is required' },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
+    
+    const response = await fetch(`${BACKEND_URL}/api/channels/${params.id}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': request.headers.get('cookie') || '',
+      },
+      body: JSON.stringify(body),
+    });
 
-    // TODO: Process invite accept logic here
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status });
+    }
 
-    return NextResponse.json({ message: `Invite ${code} accepted.` });
+    return NextResponse.json(data);
   } catch (error) {
-    console.error('Error processing invite POST:', error);
+    console.error('Error creating message:', error);
     return NextResponse.json(
-      { error: 'Server error while accepting invite' },
+      { error: 'Failed to create message' },
       { status: 500 }
     );
   }
