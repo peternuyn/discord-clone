@@ -154,7 +154,7 @@ export default function Dashboard() {
         setServers(data);
         if (data.length > 0) {
           setSelectedServer(data[0]);
-          setSelectedChannel(data[0].channels[0]);
+          setSelectedChannel(data[0]?.channels?.[0]);
         }
       } catch (err) {
         console.error('Error fetching servers:', err);
