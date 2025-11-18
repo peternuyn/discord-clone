@@ -1,0 +1,80 @@
+version: '3.8'
+
+# Production docker-compose overrides
+# Use: docker-compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    restart: always
+    environment:
+      # Use environment variables from .env file
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Don't mount init.sql in production by default
+      # If needed, ensure it's idempotent and review carefully
+    # Production PostgreSQL configuration
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+
+  # Disable pgAdmin in production
+  pgadmin:
+    profiles:
+      - tools
+
+  # Include the application in production
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: discord-clone-backend
+    restart: always
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_SSL_MODE: disable
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      PORT: ${PORT:-5000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - discord-clone-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

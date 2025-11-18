@@ -27,6 +27,7 @@ class ApiService {
         ...options.headers,
       },
       credentials: 'include', // Important for cookies
+      redirect: 'follow', // Follow redirects
       ...options,
     };
 

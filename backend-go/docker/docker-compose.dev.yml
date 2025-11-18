@@ -1,0 +1,32 @@
+version: '3.8'
+
+# Development docker-compose overrides
+# Use: docker-compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up
+
+services:
+  postgres:
+    ports:
+      - "${DATABASE_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: discord_clone
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Mount init.sql for development
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  # Development tools
+  adminer:
+    image: adminer:latest
+    container_name: discord-clone-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - discord-clone-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres

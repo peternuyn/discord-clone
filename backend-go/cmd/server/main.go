@@ -42,6 +42,10 @@ func main() {
 
 	// Create Gin router
 	router := gin.New()
+	
+	// Disable automatic redirect trailing slash
+	router.RedirectTrailingSlash = false
+	router.RedirectFixedPath = false
 
 	// Add middleware
 	router.Use(gin.Logger())

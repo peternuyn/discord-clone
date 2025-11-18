@@ -54,11 +54,49 @@ backend-go/
 
 ### Prerequisites
 
-- Go 1.24 or higher
-- PostgreSQL 12 or higher
+- Go 1.24 or higher (Go 1.25+ recommended for hot-reload)
+- PostgreSQL 12 or higher (or use Docker)
 - Make (optional, for using Makefile commands)
+- Docker Desktop (optional, for containerized setup)
 
 ### Installation
+
+Choose your preferred setup method:
+
+#### Option 1: Docker Setup (Recommended for Quick Start)
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd discord-clone/backend-go
+   ```
+
+2. **Start database with Docker**:
+   ```bash
+   make docker-up
+   ```
+   to view the database in postgre terminal (aka connect to the database)
+   
+   ```bash
+      make db-psql
+      (or psql -h localhost -U postgres -d discord_clone)
+   ```
+
+3. **Run migrations**:
+   ```bash
+   make migrate
+   ```
+
+4. **Start the application**:
+   ```bash
+   make run
+   ```
+
+🎉 You're done! Server running at http://localhost:5000
+
+See [docker/QUICKSTART.md](docker/QUICKSTART.md) for more Docker commands.
+
+#### Option 2: Local Setup
 
 1. **Clone the repository** (if not already done):
    ```bash
@@ -79,9 +117,9 @@ backend-go/
    DATABASE_HOST=localhost
    DATABASE_PORT=5432
    DATABASE_USER=postgres
-   DATABASE_PASSWORD=your_password
+   DATABASE_PASSWORD=postgres  # For Docker setup
    DATABASE_NAME=discord_clone
-   JWT_SECRET=your-super-secret-jwt-key
+   JWT_SECRET=dev-secret-key-change-in-production
    ```
 
 4. **Install dependencies**:
@@ -109,12 +147,12 @@ The server will start on `http://localhost:5000`
 
 ### Development
 
-For development with auto-reload:
+For development:
 ```bash
 make dev
 ```
 
-This will install and use `air` for hot-reloading during development.
+**Note**: With Go 1.24, `make dev` uses `go run` for development. For hot-reload functionality, upgrade to Go 1.25+ or use a file watcher like `watch -n 1 go run cmd/server/main.go`.
 
 ## API Endpoints
 
@@ -199,12 +237,46 @@ make setup          # Setup development environment
 
 ## Docker Support
 
-Build and run with Docker:
+### Database Only (Recommended for Development)
+
+Start just the PostgreSQL database:
 
 ```bash
-make docker-build   # Build Docker image
-make docker-run     # Run Docker container
+make docker-up        # Start database container
+make docker-down      # Stop containers
+make docker-logs      # View logs
 ```
+
+### Full Stack Setup
+
+Start database with management tools:
+
+```bash
+make docker-up-all    # Start database + pgAdmin + Redis
+make docker-dev       # Development setup with Adminer
+make docker-prod      # Production configuration
+```
+
+### Application Container
+
+Build and run the entire application:
+
+```bash
+make docker-build     # Build Docker image
+make docker-run       # Run application container
+make docker-build-prod # Build and run production stack
+```
+
+### Database Management
+
+```bash
+make db-psql          # Open psql shell
+make db-backup        # Backup database
+make db-restore       # Restore from backup
+make db-reset         # Reset database (WARNING: deletes data)
+```
+
+See [docker/README.md](docker/README.md) for detailed Docker documentation.
 
 ## Testing
 

@@ -136,7 +136,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (selectedServer) {
       const currentServer = servers.find(s => s.id === selectedServer.id);
-      
+
       // Update selectedServer if it exists in the new servers state
       if (currentServer && currentServer !== selectedServer) {
         setSelectedServer(currentServer);
@@ -178,17 +178,17 @@ export default function Dashboard() {
   useEffect(() => {
     const loadMessages = async () => {
       if (!selectedChannel?.id) return;
-      
+
       // Check if messages are already cached
       if (messageCache[selectedChannel.id]) {
         setMessages(messageCache[selectedChannel.id]);
         return;
       }
-      
+
       setIsLoadingMessages(true);
       try {
         const response = await apiService.getChannelMessages(selectedChannel.id);
-        
+
         // Cache the messages
         setMessageCache(prev => ({
           ...prev,
@@ -211,15 +211,15 @@ export default function Dashboard() {
    */
   useEffect(() => {
     if (!selectedServer?.channels) return;
-    
+
     const prefetchMessages = async () => {
       const channelsToPrefetch = selectedServer.channels.filter(
         (channel: any) => channel.id !== selectedChannel?.id && !messageCache[channel.id]
       );
-      
+
       // Prefetch messages for up to 3 other channels
       const channelsToLoad = channelsToPrefetch.slice(0, 3);
-      
+
       for (const channel of channelsToLoad) {
         try {
           const response = await apiService.getChannelMessages(channel.id);
@@ -232,7 +232,7 @@ export default function Dashboard() {
         }
       }
     };
-    
+
     // Delay prefetching to prioritize current channel
     const timeoutId = setTimeout(prefetchMessages, 1000);
     return () => clearTimeout(timeoutId);
@@ -279,12 +279,12 @@ export default function Dashboard() {
     socket.on('message:new', handleNewMessage);
     socket.on('reaction:added', handleReactionAdded);
     socket.on('reaction:removed', handleReactionRemoved);
-    
+
     // Channel events
     socket.on('channel:update', handleChannelUpdate);
     socket.on('channel:new', handleNewChannel);
     socket.on('channel:delete', handleChannelDelete);
-    
+
     // Voice channel events
     socket.on('voice:joined', handleVoiceJoined);
     socket.on('voice:left', handleVoiceLeft);
@@ -292,24 +292,24 @@ export default function Dashboard() {
     socket.on('voice:userLeft', handleVoiceUserLeft);
     socket.on('voice:stateUpdate', handleVoiceStateUpdate);
 
-   
+
 
     socket.on('user:online', handleUserOnline);
     socket.on('user:offline', handleUserOffline);
 
     // Cleanup on unmount
     return () => {
-      
+
       // Message events
       socket.off('message:new', handleNewMessage);
       socket.off('reaction:added', handleReactionAdded);
       socket.off('reaction:removed', handleReactionRemoved);
-      
+
       // Channel events
       socket.off('channel:update', handleChannelUpdate);
       socket.off('channel:new', handleNewChannel);
       socket.off('channel:delete', handleChannelDelete);
-      
+
       // Voice channel events
       socket.off('voice:joined', handleVoiceJoined);
       socket.off('voice:left', handleVoiceLeft);
@@ -331,18 +331,18 @@ export default function Dashboard() {
       console.log('Dashboard: Cannot join rooms - socket not connected');
       return;
     }
-  
-    
+
+
     // Join the server room when server changes
     if (selectedServer?.id) {
       socket.emit('joinServer', selectedServer.id);
     }
-    
+
     // Join the channel room when channel changes
     if (selectedChannel?.id) {
       socket.emit('join', selectedChannel.id);
     }
-    
+
     // Cleanup when component unmounts or dependencies change
     return () => {
       if (selectedChannel?.id) {
@@ -396,11 +396,11 @@ export default function Dashboard() {
             <div className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors">
               <MessageCircle className="w-6 h-6 text-white" />
             </div>
-            
+
             <Separator className="w-8 bg-gray-600" />
-            
+
             {/* Add Server - Highlighted for onboarding */}
-            <div 
+            <div
               className="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors shadow-lg animate-pulse"
               onClick={() => setShowCreateServerModal(true)}
             >
@@ -420,26 +420,25 @@ export default function Dashboard() {
             <div className="w-12 h-12 lg:w-14 lg:h-14 bg-purple-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-purple-700 transition-colors">
               <MessageCircle className="w-6 h-6 lg:w-7 lg:h-7 text-white" />
             </div>
-            
+
             <Separator className="w-8 bg-gray-600" />
-            
+
             {/* Server List */}
             {servers.map((server) => (
               <div
                 key={server.id}
                 onClick={() => setSelectedServer(server)}
-                className={`w-12 h-12 lg:w-14 lg:h-14 rounded-full flex items-center justify-center cursor-pointer transition-all ${
-                  selectedServer?.id === server.id 
-                    ? 'bg-purple-600 rounded-2xl' 
-                    : 'bg-gray-700 hover:bg-gray-600 hover:rounded-2xl'
-                }`}
+                className={`w-12 h-12 lg:w-14 lg:h-14 rounded-full flex items-center justify-center cursor-pointer transition-all ${selectedServer?.id === server.id
+                  ? 'bg-purple-600 rounded-2xl'
+                  : 'bg-gray-700 hover:bg-gray-600 hover:rounded-2xl'
+                  }`}
               >
                 <span className="text-xl lg:text-2xl">{server.icon || '🟣'}</span>
               </div>
             ))}
-            
+
             {/* Add Server */}
-            <div 
+            <div
               className="w-12 h-12 lg:w-14 lg:h-14 bg-gray-700 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-600 transition-colors"
               onClick={() => setShowCreateServerModal(true)}
             >
@@ -449,28 +448,28 @@ export default function Dashboard() {
 
           {/* --- User Info Sidebar (Left) --- */}
           <div className="w-1/8 bg-gray-800 flex flex-col h-full">
-           
-        
 
-          {/* --- Channel Sidebar --- */}
-        
-          {/* Server Header */}
-          <div className="h-12 w-max lg:h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-3 border-r border-gray-700">
+
+
+            {/* --- Channel Sidebar --- */}
+
+            {/* Server Header */}
+            <div className="h-12 w-max lg:h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-3 border-r border-gray-700">
               <h2 className="text-white font-semibold text-sm lg:text-base truncate">
                 {selectedServer?.name || 'Select a Server'}
               </h2>
-            <div className="flex items-center space-x-2">
-              <NotificationCenter />
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setShowServerSettings(true)}
-                className="text-gray-400 hover:bg-gray-700/50 hover:text-white"
-              >
-                <Settings className="w-4 h-4 lg:w-5 lg:h-5" />
-              </Button>
+              <div className="flex items-center space-x-2">
+                <NotificationCenter />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowServerSettings(true)}
+                  className="text-gray-400 hover:bg-gray-700/50 hover:text-white"
+                >
+                  <Settings className="w-4 h-4 lg:w-5 lg:h-5" />
+                </Button>
+              </div>
             </div>
-          </div>
 
             {/* Channel List */}
             <div className="flex-1 p-3 lg:p-4">
@@ -479,10 +478,10 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between text-gray-400 text-xs lg:text-sm font-semibold px-3 mb-3 uppercase tracking-wider">
                   <span>Text Channels</span>
                   {selectedServer?.ownerId === user?.id && (
-                    <Button 
-                      size="icon" 
-                      variant="ghost" 
-                      onClick={openCreateTextChannel} 
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={openCreateTextChannel}
                       className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                     >
                       <Plus className="w-3 h-3 lg:w-4 lg:h-4" />
@@ -496,31 +495,30 @@ export default function Dashboard() {
                       <div
                         key={channel.id}
                         onClick={() => setSelectedChannel(channel)}
-                        className={`group flex items-center space-x-2 px-3 py-2 rounded-md cursor-pointer transition-all duration-200 ${
-                          selectedChannel?.id === channel.id 
-                            ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30' 
-                            : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
-                        }`}
+                        className={`group flex items-center space-x-2 px-3 py-2 rounded-md cursor-pointer transition-all duration-200 ${selectedChannel?.id === channel.id
+                          ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30'
+                          : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
+                          }`}
                       >
                         <div className="flex items-center space-x-2 flex-1 min-w-0">
                           <Hash className={`w-4 h-4 lg:w-5 lg:h-5 flex-shrink-0 ${selectedChannel?.id === channel.id ? 'text-purple-400' : 'text-gray-500'}`} />
                           <span className="text-sm lg:text-base font-medium truncate">{channel.name}</span>
                         </div>
-                        
+
                         {selectedServer?.ownerId === user?.id && (
                           <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                            <Button 
-                              size="icon" 
-                              variant="ghost" 
-                              onClick={e => { e.stopPropagation(); openEditChannel(channel); }} 
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={e => { e.stopPropagation(); openEditChannel(channel); }}
                               className="hover:text-yellow-400 hover:bg-yellow-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                             >
                               <Edit className="w-3 h-3 lg:w-4 lg:h-4" />
                             </Button>
-                            <Button 
-                              size="icon" 
-                              variant="ghost" 
-                              onClick={e => { e.stopPropagation(); handleDeleteChannel(channel.id); }} 
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={e => { e.stopPropagation(); handleDeleteChannel(channel.id); }}
                               className="hover:text-red-400 hover:bg-red-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                             >
                               <Trash2 className="w-3 h-3 lg:w-4 lg:h-4" />
@@ -537,10 +535,10 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between text-gray-400 text-xs lg:text-sm font-semibold px-3 mb-3 uppercase tracking-wider">
                   <span>Voice Channels</span>
                   {selectedServer?.ownerId === user?.id && (
-                    <Button 
-                      size="icon" 
-                      variant="ghost" 
-                      onClick={openCreateVoiceChannel} 
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={openCreateVoiceChannel}
                       className="hover:text-green-400 hover:bg-green-400/10 w-6 h-6 lg:w-7 lg:h-7 rounded-md transition-all duration-200"
                     >
                       <Plus className="w-3 h-3 lg:w-4 lg:h-4" />
@@ -573,11 +571,11 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-             
+
 
             {/* User Info Header */}
             <div className="border-b border-gray-700">
-               <div className="lg:h-18 bg-gray-700 flex items-center border-b border-gray-700 w-full px-4">
+              <div className="lg:h-18 bg-gray-700 flex items-center border-b border-gray-700 w-full px-4">
                 <div className="flex items-center space-x-3 min-w-0 px-1">
                   <Avatar className="w-10 h-10 lg:w-12 lg:h-12 flex-shrink-0">
                     <AvatarImage src={user?.avatar || ''} />
@@ -593,9 +591,9 @@ export default function Dashboard() {
 
             {/* User Actions */}
             <div className="space-y-2 p-2">
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setShowUserProfile(!showUserProfile)}
                 className="w-full justify-start text-gray-400 hover:text-white hover:bg-gray-700"
               >
@@ -681,7 +679,7 @@ export default function Dashboard() {
                               </span>
                             </div>
                             <p className="text-gray-300 mt-1 text-sm lg:text-base break-words">{message.content}</p>
-                            <MessageReactions 
+                            <MessageReactions
                               reactions={message.reactions || []}
                               onReactionAdd={(emoji) => handleReactionAdd(message.id, emoji)}
                               onReactionRemove={(emoji) => handleReactionRemove(message.id, emoji)}
@@ -693,7 +691,7 @@ export default function Dashboard() {
                   </div>
                   <div ref={messagesEndRef} />
                 </div>
-                
+
                 {/* Scroll to Bottom Button */}
                 {showScrollToBottom && (
                   <div className="absolute bottom-4 right-4 z-10">
@@ -716,7 +714,7 @@ export default function Dashboard() {
 
             {/* Message Input */}
             <div className="flex-shrink-0">
-              <MessageInput 
+              <MessageInput
                 channelName={selectedChannel?.name || ''}
                 onSendMessage={handleSendMessage}
                 onTyping={handleTyping}
@@ -739,7 +737,7 @@ export default function Dashboard() {
                 audio.muted = isDeafened;
                 audio.preload = 'none'; // Prevent preloading to reduce echo
                 audio.controls = false;
-                
+
                 // Ensure audio plays
                 audio.oncanplay = () => {
                   audio.play().catch(e => console.error('Dashboard: Audio play failed for user:', userId, e));
