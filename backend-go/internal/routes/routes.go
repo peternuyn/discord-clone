@@ -37,8 +37,8 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 	servers := router.Group("/servers")
 	servers.Use(middleware.AuthMiddleware(cfg))
 	{
-		servers.POST("/", serverController.CreateServer)
-		servers.GET("/", serverController.GetUserServers)
+		servers.POST("", serverController.CreateServer)
+		servers.GET("", serverController.GetUserServers)
 		servers.GET("/:id", serverController.GetServer)
 		servers.PUT("/:id", serverController.UpdateServer)
 		servers.DELETE("/:id", serverController.DeleteServer)
@@ -49,7 +49,7 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 	channels := router.Group("/channels")
 	channels.Use(middleware.AuthMiddleware(cfg))
 	{
-		channels.POST("/", serverController.CreateChannel)
+		channels.POST("", serverController.CreateChannel)
 		channels.GET("/:id", serverController.GetChannel)
 		channels.PUT("/:id", serverController.UpdateChannel)
 		channels.DELETE("/:id", serverController.DeleteChannel)
@@ -59,7 +59,7 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 	invites := router.Group("/invites")
 	invites.Use(middleware.AuthMiddleware(cfg))
 	{
-		invites.POST("/", serverController.CreateInvite)
+		invites.POST("", serverController.CreateInvite)
 		invites.GET("/:code", serverController.GetInvite)
 		invites.POST("/:code/accept", serverController.AcceptInvite)
 	}
