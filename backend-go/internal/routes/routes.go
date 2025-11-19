@@ -49,10 +49,10 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 	channels := router.Group("/channels")
 	channels.Use(middleware.AuthMiddleware(cfg))
 	{
-		channels.POST("", serverController.CreateChannel)
-		channels.GET("/:id", serverController.GetChannel)
-		channels.PUT("/:id", serverController.UpdateChannel)
-		channels.DELETE("/:id", serverController.DeleteChannel)
+		channels.POST("/server/:serverId", serverController.CreateChannel)
+		channels.GET("/server/:serverId/:channelId", serverController.GetChannel)
+		channels.PUT("/server/:serverId/:channelId", serverController.UpdateChannel)
+		channels.DELETE("/server/:serverId/:channelId", serverController.DeleteChannel)
 	}
 
 	// Invite routes (protected)

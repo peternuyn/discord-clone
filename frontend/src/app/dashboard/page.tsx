@@ -477,7 +477,7 @@ export default function Dashboard() {
               <div className="mb-6">
                 <div className="flex items-center justify-between text-gray-400 text-xs lg:text-sm font-semibold px-3 mb-3 uppercase tracking-wider">
                   <span>Text Channels</span>
-                  {selectedServer?.ownerId === user?.id && (
+                  {selectedServer?.owner_id === user?.id && (
                     <Button
                       size="icon"
                       variant="ghost"

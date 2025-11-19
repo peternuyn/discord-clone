@@ -1,14 +1,18 @@
 package controllers
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 
 	"discord-clone-backend/internal/middleware"
 	"discord-clone-backend/internal/models"
+	"discord-clone-backend/internal/realtime"
 	"discord-clone-backend/pkg/database"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // ServerController handles server-related requests
@@ -24,6 +28,13 @@ type CreateServerRequest struct {
 	Name        string  `json:"name" binding:"required,min=2"`
 	Description *string `json:"description"`
 	Icon        *string `json:"icon"`
+}
+
+// CreateChannelRequest represents the request body for creating a channel
+type CreateChannelRequest struct {
+	ServerID string `json:"serverId"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
 }
 
 // CreateServer creates a new server
@@ -276,11 +287,87 @@ func (sc *ServerController) QuitServer(c *gin.Context) {
 	})
 }
 
-// Placeholder methods for channels and invites (to be implemented)
 func (sc *ServerController) CreateChannel(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "CreateChannel not implemented yet",
-	})
+	userID, _ := middleware.GetUserID(c)
+
+	var req CreateChannelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
+		return
+	}
+
+	// Prefer URL param
+	serverID := c.Param("serverId")
+	if serverID == "" {
+		serverID = req.ServerID
+	}
+	if serverID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Server ID is required"})
+		return
+	}
+
+	if req.Name == "" || req.Type == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel name and type are required"})
+		return
+	}
+
+	// Ensure user is a member
+	var member models.ServerMember
+	if err := database.DB.
+		Where("server_id = ? AND user_id = ?", serverID, userID).
+		First(&member).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this server"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify server membership"})
+		return
+	}
+
+	// Calculate next position
+	var count int64
+	if err := database.DB.
+		Model(&models.Channel{}).
+		Where("server_id = ?", serverID).
+		Count(&count).Error; err != nil {
+
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to calculate channel position"})
+		return
+	}
+
+	channel := models.Channel{
+		ID:       uuid.New().String(),
+		Name:     req.Name,
+		Type:     req.Type,
+		ServerID: serverID,
+		Position: int(count),
+	}
+
+	if err := database.DB.Create(&channel).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create channel"})
+		return
+	}
+
+	// -----------------------------------------
+	// 🔵 SOCKET EVENT EMISSION 
+	// -----------------------------------------
+	if realtime.SocketServer != nil {
+		fmt.Println("Emitting socket event to server room:", serverID)
+
+		// Send channel:new event
+		realtime.SocketServer.BroadcastToRoom("/", serverID, "channel:new", channel)
+
+		// Test event (same as TS)
+		realtime.SocketServer.BroadcastToRoom("/", serverID, "test:event", map[string]any{
+			"message":   "Test event from Go channel creation",
+			"channelId": channel.ID,
+		})
+
+		fmt.Println("Socket events emitted successfully")
+	}
+
+	c.JSON(http.StatusCreated, channel)
 }
 
 func (sc *ServerController) GetChannel(c *gin.Context) {
