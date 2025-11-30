@@ -29,6 +29,10 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 	users.Use(middleware.AuthMiddleware(cfg))
 	{
 		users.GET("/", userController.GetUsers)
+		// Online users routes (must come before /:id to avoid route conflicts)
+		users.GET("/online", userController.GetOnlineUsers)
+		users.GET("/online/server/:serverId", userController.GetOnlineUsersForServer)
+		users.GET("/online/:userId", userController.IsUserOnline)
 		users.GET("/:id", userController.GetUser)
 		users.PUT("/:id", userController.UpdateUser)
 	}
@@ -50,9 +54,9 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 	channels.Use(middleware.AuthMiddleware(cfg))
 	{
 		channels.POST("/server/:serverId", serverController.CreateChannel)
-		channels.GET("/server/:serverId/:channelId", serverController.GetChannel)
-		channels.PUT("/server/:serverId/:channelId", serverController.UpdateChannel)
-		channels.DELETE("/server/:serverId/:channelId", serverController.DeleteChannel)
+		channels.GET("/:id", serverController.GetChannel)
+		channels.PUT("/:id", serverController.UpdateChannel)
+		channels.DELETE("/:id", serverController.DeleteChannel)
 	}
 
 	// Invite routes (protected)

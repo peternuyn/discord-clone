@@ -1,6 +1,6 @@
 # Makefile for Discord Clone Backend (Go)
 
-.PHONY: help build run dev test clean deps migrate docker-up docker-down docker-logs db-backup db-restore
+.PHONY: help build run dev test clean deps migrate docker-up docker-down docker-logs db-backup db-restore db db-psql
 
 # Default target
 help: ## Show this help message
@@ -171,7 +171,10 @@ db-restore: ## Restore database from backup.sql
 	@docker exec -i discord-clone-postgres psql -U postgres discord_clone < backup.sql
 	@echo "Database restored from backup.sql"
 
-db-psql: ## Open psql shell
+db: ## Open pgcli shell
+	@PGPASSWORD=$${DATABASE_PASSWORD:-postgres} pgcli -h localhost -U postgres -d discord_clone
+
+db-psql: ## Open psql shell (legacy)
 	@docker exec -it discord-clone-postgres psql -U postgres -d discord_clone
 
 db-status: ## Check database status

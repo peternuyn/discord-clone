@@ -202,3 +202,128 @@ func (uc *UserController) UpdateUser(c *gin.Context) {
 		"user":    userResp,
 	})
 }
+
+
+// GetOnlineUsers returns all online users
+func (uc *UserController) GetOnlineUsers(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Get all users
+	users, err := uc.queries.GetUsers(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch users",
+		})
+		return
+	}
+
+	// Filter online users and convert to response format
+	onlineUsers := []gin.H{}
+	for _, user := range users {
+		status := database.PgTextToString(user.Status)
+		if status != nil && *status == "online" {
+			onlineUsers = append(onlineUsers, gin.H{
+				"userId":       user.ID,
+				"username":     user.Username,
+				"discriminator": user.Discriminator,
+				"avatar":       database.PgTextToString(user.Avatar),
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"onlineUsers": onlineUsers,
+		"count":       len(onlineUsers),
+		"totalOnline": len(onlineUsers),
+	})
+}
+
+// GetOnlineUsersForServer returns online users for a specific server
+func (uc *UserController) GetOnlineUsersForServer(c *gin.Context) {
+	ctx := c.Request.Context()
+	serverID := c.Param("serverId")
+	userID, _ := middleware.GetUserID(c)
+
+	// Check if user is a member of the server
+	_, err := uc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: serverID,
+		UserID:   userID,
+	})
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Not a member of this server",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check membership",
+		})
+		return
+	}
+
+	// Get server members with user info
+	serverMembers, err := uc.queries.GetServerMembersWithUsers(ctx, serverID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server members",
+		})
+		return
+	}
+
+	// Filter online users
+	onlineUsers := []gin.H{}
+	for _, member := range serverMembers {
+		// Check if user status is online
+		// Note: The GetServerMembersWithUsers query returns user fields, but we need to check status
+		// Since the query doesn't return status, we'll get the user separately or modify the query
+		// For now, let's get the user to check status
+		user, err := uc.queries.GetUserByID(ctx, member.UserID)
+		if err != nil {
+			continue // Skip if user not found
+		}
+
+		status := database.PgTextToString(user.Status)
+		if status != nil && *status == "online" {
+			onlineUsers = append(onlineUsers, gin.H{
+				"userId":       user.ID,
+				"username":     user.Username,
+				"discriminator": user.Discriminator,
+				"avatar":       database.PgTextToString(user.Avatar),
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"onlineUsers": onlineUsers,
+		"count":       len(onlineUsers),
+	})
+}
+
+// IsUserOnline checks if a specific user is online
+func (uc *UserController) IsUserOnline(c *gin.Context) {
+	ctx := c.Request.Context()
+	userID := c.Param("userId")
+
+	user, err := uc.queries.GetUserByID(ctx, userID)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "User not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch user",
+		})
+		return
+	}
+
+	status := database.PgTextToString(user.Status)
+	isOnline := status != nil && *status == "online"
+
+	c.JSON(http.StatusOK, gin.H{
+		"userId":  userID,
+		"isOnline": isOnline,
+	})
+}

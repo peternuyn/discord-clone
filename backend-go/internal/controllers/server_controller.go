@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"discord-clone-backend/internal/db"
 	"discord-clone-backend/internal/middleware"
@@ -118,6 +119,7 @@ func (sc *ServerController) CreateServer(c *gin.Context) {
 		OwnerID:     userID,
 	})
 	if err != nil {
+		fmt.Printf("Error creating server: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create server",
 		})
@@ -133,16 +135,17 @@ func (sc *ServerController) CreateServer(c *gin.Context) {
 		Role:     pgtype.Text{String: "owner", Valid: true},
 	})
 	if err != nil {
+		fmt.Printf("Error creating server member: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create server membership",
 		})
 		return
 	}
 
-	// Create default general channel
-	channelID := uuid.New().String()
+	// Create default general text channel
+	textChannelID := uuid.New().String()
 	_, err = sc.queries.CreateChannel(ctx, db.CreateChannelParams{
-		ID:              channelID,
+		ID:              textChannelID,
 		Name:            "general",
 		Type:            "text",
 		ServerID:        server.ID,
@@ -150,8 +153,27 @@ func (sc *ServerController) CreateServer(c *gin.Context) {
 		MaxParticipants: pgtype.Int4{Valid: false},
 	})
 	if err != nil {
+		fmt.Printf("Error creating text channel: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to create default channel",
+			"error": "Failed to create default text channel",
+		})
+		return
+	}
+
+	// Create default general voice channel
+	voiceChannelID := uuid.New().String()
+	_, err = sc.queries.CreateChannel(ctx, db.CreateChannelParams{
+		ID:              voiceChannelID,
+		Name:            "General",
+		Type:            "voice",
+		ServerID:        server.ID,
+		Position:        1,
+		MaxParticipants: pgtype.Int4{Valid: false},
+	})
+	if err != nil {
+		fmt.Printf("Error creating voice channel: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to create default voice channel",
 		})
 		return
 	}
@@ -544,37 +566,455 @@ func (sc *ServerController) CreateChannel(c *gin.Context) {
 }
 
 func (sc *ServerController) GetChannel(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "GetChannel not implemented yet",
-	})
+	ctx := c.Request.Context()
+	channelID := c.Param("id")
+
+	// Get channel by ID
+	channel, err := sc.queries.GetChannelByID(ctx, channelID)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Channel not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch channel",
+		})
+		return
+	}
+
+	// Return channel in response format
+	channelResp := gin.H{
+		"id":               channel.ID,
+		"name":             channel.Name,
+		"type":             channel.Type,
+		"server_id":        channel.ServerID,
+		"position":         channel.Position,
+		"max_participants": channel.MaxParticipants,
+		"created_at":       channel.CreatedAt,
+		"updated_at":       channel.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, channelResp)
 }
 
 func (sc *ServerController) UpdateChannel(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "UpdateChannel not implemented yet",
+	ctx := c.Request.Context()
+	channelID := c.Param("id")
+
+	// Get current channel to verify it exists
+	currentChannel, err := sc.queries.GetChannelByID(ctx, channelID)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Channel not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch channel",
+		})
+		return
+	}
+
+	var updateData struct {
+		Name            *string `json:"name"`
+		Type            *string `json:"type"`
+		Position        *int32  `json:"position"`
+		MaxParticipants *int32  `json:"max_participants"`
+	}
+
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request data",
+		})
+		return
+	}
+
+	// Update only provided fields
+	name := currentChannel.Name
+	if updateData.Name != nil {
+		name = *updateData.Name
+	}
+
+	channelType := currentChannel.Type
+	if updateData.Type != nil {
+		channelType = *updateData.Type
+	}
+
+	position := currentChannel.Position
+	if updateData.Position != nil {
+		position = *updateData.Position
+	}
+
+	maxParticipants := currentChannel.MaxParticipants
+	if updateData.MaxParticipants != nil {
+		maxParticipants = pgtype.Int4{Int32: *updateData.MaxParticipants, Valid: true}
+	}
+
+	channel, err := sc.queries.UpdateChannel(ctx, db.UpdateChannelParams{
+		ID:              channelID,
+		Name:            name,
+		Type:            channelType,
+		Position:        position,
+		MaxParticipants: maxParticipants,
 	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to update channel",
+		})
+		return
+	}
+
+	// -----------------------------------------
+	// 🔵 SOCKET EVENT EMISSION
+	// -----------------------------------------
+	if realtime.SocketServer != nil {
+		fmt.Println("Emitting socket event to server room:", channel.ServerID)
+
+		// Convert channel to map for socket emission 
+		channelMap := gin.H{
+			"id":               channel.ID,
+			"name":             channel.Name,
+			"type":             channel.Type,
+			"server_id":        channel.ServerID,
+			"position":         channel.Position,
+			"max_participants": channel.MaxParticipants,
+			"created_at":       channel.CreatedAt,
+			"updated_at":       channel.UpdatedAt,
+		}
+
+		// Send channel:update event
+		realtime.SocketServer.BroadcastToRoom("/", channel.ServerID, "channel:update", channelMap)
+
+		fmt.Println("Socket event emitted successfully")
+	}
+
+	// Return channel in response format
+	channelResp := gin.H{
+		"id":               channel.ID,
+		"name":             channel.Name,
+		"type":             channel.Type,
+		"server_id":        channel.ServerID,
+		"position":         channel.Position,
+		"max_participants": channel.MaxParticipants,
+		"created_at":       channel.CreatedAt,
+		"updated_at":       channel.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, channelResp)
 }
 
 func (sc *ServerController) DeleteChannel(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "DeleteChannel not implemented yet",
+	ctx := c.Request.Context()
+	channelID := c.Param("id")
+
+	// Get channel info before deletion for socket emission 
+	channel, err := sc.queries.GetChannelByID(ctx, channelID)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Channel not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch channel",
+		})
+		return
+	}
+
+	// Delete channel (cascade will handle related records)
+	err = sc.queries.DeleteChannel(ctx, channelID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to delete channel",
+		})
+		return
+	}
+
+	// -----------------------------------------
+	// 🔵 SOCKET EVENT EMISSION
+	// -----------------------------------------
+	if realtime.SocketServer != nil {
+		fmt.Println("Emitting socket event to server room:", channel.ServerID)
+
+		// Send channel:delete event (matching TypeScript - emits just the ID)
+		realtime.SocketServer.BroadcastToRoom("/", channel.ServerID, "channel:delete", channelID)
+
+		fmt.Println("Socket event emitted successfully")
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Channel deleted",
 	})
 }
 
 func (sc *ServerController) CreateInvite(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "CreateInvite not implemented yet",
+	ctx := c.Request.Context()
+	userID, _ := middleware.GetUserID(c)
+
+	var req struct {
+		ServerID  string  `json:"serverId" binding:"required"`
+		SingleUse *bool   `json:"singleUse"`
+		ExpiresAt *string `json:"expiresAt"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request data",
+		})
+		return
+	}
+
+	// Check if user is a member of the server
+	_, err := sc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: req.ServerID,
+		UserID:   userID,
 	})
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Not a server member",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check membership",
+		})
+		return
+	}
+
+	// Generate unique invite code
+	inviteCode := uuid.New().String()
+	inviteID := uuid.New().String()
+
+	// Parse expiresAt if provided
+	var expiresAt pgtype.Timestamp
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		expiresTime, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid expiresAt format. Use RFC3339 format",
+			})
+			return
+		}
+		expiresAt = pgtype.Timestamp{Time: expiresTime, Valid: true}
+	}
+
+	// Set singleUse default to false
+	singleUse := pgtype.Bool{Valid: false}
+	if req.SingleUse != nil {
+		singleUse = pgtype.Bool{Bool: *req.SingleUse, Valid: true}
+	}
+
+	invite, err := sc.queries.CreateInvite(ctx, db.CreateInviteParams{
+		ID:        inviteID,
+		Code:      inviteCode,
+		ServerID:  req.ServerID,
+		SingleUse: singleUse,
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to create invite",
+		})
+		return
+	}
+
+	// Return invite in response format
+	inviteResp := gin.H{
+		"id":        invite.ID,
+		"code":      invite.Code,
+		"server_id": invite.ServerID,
+		"created_at": invite.CreatedAt,
+		"expires_at": invite.ExpiresAt,
+		"used":       invite.Used,
+		"single_use": invite.SingleUse,
+		"used_by_id": invite.UsedByID,
+		"used_at":    invite.UsedAt,
+	}
+
+	c.JSON(http.StatusCreated, inviteResp)
 }
 
 func (sc *ServerController) GetInvite(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "GetInvite not implemented yet",
-	})
+	ctx := c.Request.Context()
+	code := c.Param("code")
+
+	invite, err := sc.queries.GetInviteByCode(ctx, code)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Invite not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch invite",
+		})
+		return
+	}
+
+	// Check if invite is expired
+	if invite.ExpiresAt.Valid {
+		if time.Now().After(invite.ExpiresAt.Time) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invite expired",
+			})
+			return
+		}
+	}
+
+	// Check if invite is already used (for single-use invites)
+	if invite.SingleUse.Bool && invite.Used.Bool {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invite already used",
+		})
+		return
+	}
+
+	// Get server info for the response
+	server, err := sc.queries.GetServerByID(ctx, invite.ServerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server",
+		})
+		return
+	}
+
+	// Return invite with server info
+	inviteResp := gin.H{
+		"id":        invite.ID,
+		"code":      invite.Code,
+		"server_id": invite.ServerID,
+		"created_at": invite.CreatedAt,
+		"expires_at": invite.ExpiresAt,
+		"used":       invite.Used,
+		"single_use": invite.SingleUse,
+		"used_by_id": invite.UsedByID,
+		"used_at":    invite.UsedAt,
+		"server": gin.H{
+			"id":          server.ID,
+			"name":        server.Name,
+			"description": database.PgTextToString(server.Description),
+			"icon":        database.PgTextToString(server.Icon),
+			"owner_id":    server.OwnerID,
+			"created_at":  server.CreatedAt,
+			"updated_at":  server.UpdatedAt,
+		},
+	}
+
+	c.JSON(http.StatusOK, inviteResp)
 }
 
 func (sc *ServerController) AcceptInvite(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "AcceptInvite not implemented yet",
+	ctx := c.Request.Context()
+	code := c.Param("code")
+	userID, _ := middleware.GetUserID(c)
+
+	// Get invite by code
+	invite, err := sc.queries.GetInviteByCode(ctx, code)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Invite not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch invite",
+		})
+		return
+	}
+
+	// Check if invite is expired
+	if invite.ExpiresAt.Valid {
+		if time.Now().After(invite.ExpiresAt.Time) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invite expired",
+			})
+			return
+		}
+	}
+
+	// Check if invite is already used (for single-use invites)
+	if invite.SingleUse.Bool && invite.Used.Bool {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invite already used",
+		})
+		return
+	}
+
+	// Check if user is already a member
+	_, err = sc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: invite.ServerID,
+		UserID:   userID,
+	})
+	if err == nil {
+		// User is already a member
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Already a member",
+		})
+		return
+	}
+	if !database.IsNoRowsError(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check membership",
+		})
+		return
+	}
+
+	// Add user to server
+	memberID := uuid.New().String()
+	_, err = sc.queries.CreateServerMember(ctx, db.CreateServerMemberParams{
+		ID:       memberID,
+		ServerID: invite.ServerID,
+		UserID:   userID,
+		Role:     pgtype.Text{String: "member", Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to join server",
+		})
+		return
+	}
+
+	// Mark invite as used if single-use
+	if invite.SingleUse.Bool {
+		_, err = sc.queries.UpdateInvite(ctx, db.UpdateInviteParams{
+			Code:     code,
+			Used:     pgtype.Bool{Bool: true, Valid: true},
+			UsedByID: pgtype.Text{String: userID, Valid: true},
+		})
+		if err != nil {
+			// Log error but don't fail the request
+			fmt.Printf("Failed to mark invite as used: %v\n", err)
+		}
+	}
+
+	// Get server info for the response
+	server, err := sc.queries.GetServerByID(ctx, invite.ServerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server",
+		})
+		return
+	}
+
+	serverResp := gin.H{
+		"id":          server.ID,
+		"name":        server.Name,
+		"description": database.PgTextToString(server.Description),
+		"icon":        database.PgTextToString(server.Icon),
+		"owner_id":    server.OwnerID,
+		"created_at":  server.CreatedAt,
+		"updated_at":  server.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Joined server",
+		"server":  serverResp,
 	})
 }
