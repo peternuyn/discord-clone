@@ -1,34 +1,36 @@
 package controllers
 
 import (
-	"net/http"
-
 	"discord-clone-backend/internal/auth"
+	"discord-clone-backend/internal/db"
 	"discord-clone-backend/internal/middleware"
-	"discord-clone-backend/internal/models"
 	"discord-clone-backend/pkg/database"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // AuthController handles authentication-related requests
 type AuthController struct {
 	jwtSecret string
+	queries   *db.Queries
 }
 
 // NewAuthController creates a new auth controller
 func NewAuthController(jwtSecret string) *AuthController {
 	return &AuthController{
 		jwtSecret: jwtSecret,
+		queries:   db.New(database.GetDB()),
 	}
 }
 
 // RegisterRequest represents the request body for user registration
 type RegisterRequest struct {
-	Username       string `json:"username" binding:"required,min=3,max=20"`
-	Email          string `json:"email" binding:"required,email"`
-	Password       string `json:"password" binding:"required,min=8"`
+	Username        string `json:"username" binding:"required,min=3,max=20"`
+	Email           string `json:"email" binding:"required,email"`
+	Password        string `json:"password" binding:"required,min=8"`
 	ConfirmPassword string `json:"confirmPassword" binding:"required"`
 }
 
@@ -40,10 +42,11 @@ type LoginRequest struct {
 
 // Register handles user registration
 func (ac *AuthController) Register(c *gin.Context) {
+	ctx := c.Request.Context()
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request data",
+			"error":   "Invalid request data",
 			"details": err.Error(),
 		})
 		return
@@ -66,9 +69,11 @@ func (ac *AuthController) Register(c *gin.Context) {
 	}
 
 	// Check if user already exists
-	var existingUser models.User
-	result := database.DB.Where("email = ? OR username = ?", req.Email, req.Username).First(&existingUser)
-	if result.Error == nil {
+	existingUser, err := ac.queries.GetUserByEmailOrUsername(ctx, db.GetUserByEmailOrUsernameParams{
+		Email:    req.Email,
+		Username: req.Username,
+	})
+	if err == nil {
 		errorMsg := "User already exists"
 		if existingUser.Email == req.Email {
 			errorMsg = "Email already registered"
@@ -80,14 +85,25 @@ func (ac *AuthController) Register(c *gin.Context) {
 		})
 		return
 	}
+	if !database.IsNoRowsError(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check user existence",
+		})
+		return
+	}
 
 	// Generate unique discriminator
 	discriminator := auth.GenerateDiscriminator()
 	for {
-		var user models.User
-		result := database.DB.Where("discriminator = ?", discriminator).First(&user)
-		if result.Error != nil {
-			break // Discriminator is unique
+		_, err := ac.queries.GetUserByDiscriminator(ctx, discriminator)
+		if err != nil {
+			if database.IsNoRowsError(err) {
+				break // Discriminator is unique
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to check discriminator",
+			})
+			return
 		}
 		discriminator = auth.GenerateDiscriminator()
 	}
@@ -102,17 +118,19 @@ func (ac *AuthController) Register(c *gin.Context) {
 	}
 
 	// Create user
-	user := models.User{
-		ID:            uuid.New().String(),
+	userID := uuid.New().String()
+	user, err := ac.queries.CreateUser(ctx, db.CreateUserParams{
+		ID:            userID,
 		Username:      req.Username,
 		Email:         req.Email,
 		Password:      hashedPassword,
 		Discriminator: discriminator,
-		Avatar:        nil, // Will be set to default avatar URL
-		Status:        "offline",
-	}
-
-	if err := database.DB.Create(&user).Error; err != nil {
+		Avatar:        pgtype.Text{Valid: false}, // nil
+		Status:        pgtype.Text{String: "offline", Valid: true},
+		Bio:           pgtype.Text{Valid: false}, // nil
+		Location:      pgtype.Text{Valid: false}, // nil
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create user",
 		})
@@ -125,8 +143,8 @@ func (ac *AuthController) Register(c *gin.Context) {
 		"username":      user.Username,
 		"email":         user.Email,
 		"discriminator": user.Discriminator,
-		"avatar":        user.Avatar,
-		"status":        user.Status,
+		"avatar":        database.PgTextToString(user.Avatar),
+		"status":        database.PgTextToString(user.Status),
 		"created_at":    user.CreatedAt,
 	}
 
@@ -138,21 +156,27 @@ func (ac *AuthController) Register(c *gin.Context) {
 
 // Login handles user login
 func (ac *AuthController) Login(c *gin.Context) {
+	ctx := c.Request.Context()
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request data",
+			"error":   "Invalid request data",
 			"details": err.Error(),
 		})
 		return
 	}
 
 	// Find user by email
-	var user models.User
-	result := database.DB.Where("email = ?", req.Email).First(&user)
-	if result.Error != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Invalid email or password",
+	user, err := ac.queries.GetUserByEmail(ctx, req.Email)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "Invalid email or password",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to find user",
 		})
 		return
 	}
@@ -175,22 +199,30 @@ func (ac *AuthController) Login(c *gin.Context) {
 	}
 
 	// Update user status to online
-	user.Status = "online"
-	database.DB.Save(&user)
+	updatedUser, err := ac.queries.UpdateUserStatus(ctx, db.UpdateUserStatusParams{
+		ID:     user.ID,
+		Status: pgtype.Text{String: "online", Valid: true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to update user status",
+		})
+		return
+	}
 
 	// Set HTTP-only cookie
 	c.SetCookie("token", token, 7*24*60*60, "/", "", false, true) // 7 days, HTTP-only
 
 	// Return user data
 	userResponse := gin.H{
-		"id":            user.ID,
-		"username":      user.Username,
-		"email":         user.Email,
-		"discriminator": user.Discriminator,
-		"avatar":        user.Avatar,
-		"status":        user.Status,
-		"bio":           user.Bio,
-		"location":      user.Location,
+		"id":            updatedUser.ID,
+		"username":      updatedUser.Username,
+		"email":         updatedUser.Email,
+		"discriminator": updatedUser.Discriminator,
+		"avatar":        database.PgTextToString(updatedUser.Avatar),
+		"status":        database.PgTextToString(updatedUser.Status),
+		"bio":           database.PgTextToString(updatedUser.Bio),
+		"location":      database.PgTextToString(updatedUser.Location),
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -211,6 +243,7 @@ func (ac *AuthController) Logout(c *gin.Context) {
 
 // GetCurrentUser returns the current authenticated user
 func (ac *AuthController) GetCurrentUser(c *gin.Context) {
+	ctx := c.Request.Context()
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -220,11 +253,16 @@ func (ac *AuthController) GetCurrentUser(c *gin.Context) {
 	}
 
 	// Find user by ID
-	var user models.User
-	result := database.DB.Where("id = ?", userID).First(&user)
-	if result.Error != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "User not found",
+	user, err := ac.queries.GetUserByID(ctx, userID)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "User not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to find user",
 		})
 		return
 	}
@@ -235,10 +273,10 @@ func (ac *AuthController) GetCurrentUser(c *gin.Context) {
 		"username":      user.Username,
 		"email":         user.Email,
 		"discriminator": user.Discriminator,
-		"avatar":        user.Avatar,
-		"status":        user.Status,
-		"bio":           user.Bio,
-		"location":      user.Location,
+		"avatar":        database.PgTextToString(user.Avatar),
+		"status":        database.PgTextToString(user.Status),
+		"bio":           database.PgTextToString(user.Bio),
+		"location":      database.PgTextToString(user.Location),
 		"created_at":    user.CreatedAt,
 	}
 

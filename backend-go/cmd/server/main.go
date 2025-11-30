@@ -35,10 +35,8 @@ func main() {
 		log.Fatalf("Failed to test database connection: %v", err)
 	}
 
-	// Run database migrations
-	if err := database.Migrate(); err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
-	}
+	// Note: Database migrations should be run manually using: make migrate
+	database.Migrate() // No-op, just logs a reminder
 
 	// Create Gin router
 	router := gin.New()

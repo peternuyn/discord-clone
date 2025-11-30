@@ -1,26 +1,30 @@
 package controllers
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"net/http"
 
+	"discord-clone-backend/internal/db"
 	"discord-clone-backend/internal/middleware"
-	"discord-clone-backend/internal/models"
 	"discord-clone-backend/internal/realtime"
 	"discord-clone-backend/pkg/database"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // ServerController handles server-related requests
-type ServerController struct{}
+type ServerController struct {
+	queries *db.Queries
+}
 
 // NewServerController creates a new server controller
 func NewServerController() *ServerController {
-	return &ServerController{}
+	return &ServerController{
+		queries: db.New(database.GetDB()),
+	}
 }
 
 // CreateServerRequest represents the request body for creating a server
@@ -37,8 +41,63 @@ type CreateChannelRequest struct {
 	Type     string `json:"type"`
 }
 
+// buildServerResponse builds a server response with channels and members
+func (sc *ServerController) buildServerResponse(ctx context.Context, server db.Server) (gin.H, error) {
+	// Get channels
+	channels, err := sc.queries.GetChannelsByServerID(ctx, server.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get members
+	members, err := sc.queries.GetServerMembers(ctx, server.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert channels to response format
+	channelsResp := make([]gin.H, len(channels))
+	for i, ch := range channels {
+		channelsResp[i] = gin.H{
+			"id":               ch.ID,
+			"name":             ch.Name,
+			"type":             ch.Type,
+			"server_id":        ch.ServerID,
+			"position":         ch.Position,
+			"max_participants": ch.MaxParticipants,
+			"created_at":       ch.CreatedAt,
+			"updated_at":       ch.UpdatedAt,
+		}
+	}
+
+	// Convert members to response format
+	membersResp := make([]gin.H, len(members))
+	for i, m := range members {
+		membersResp[i] = gin.H{
+			"id":        m.ID,
+			"server_id": m.ServerID,
+			"user_id":   m.UserID,
+			"role":      database.PgTextToString(m.Role),
+			"joined_at": m.JoinedAt,
+		}
+	}
+
+	return gin.H{
+		"id":          server.ID,
+		"name":        server.Name,
+		"description": database.PgTextToString(server.Description),
+		"icon":        database.PgTextToString(server.Icon),
+		"owner_id":    server.OwnerID,
+		"created_at":  server.CreatedAt,
+		"updated_at":  server.UpdatedAt,
+		"channels":    channelsResp,
+		"members":     membersResp,
+	}, nil
+}
+
 // CreateServer creates a new server
 func (sc *ServerController) CreateServer(c *gin.Context) {
+	ctx := c.Request.Context()
 	userID, _ := middleware.GetUserID(c)
 
 	var req CreateServerRequest
@@ -50,15 +109,15 @@ func (sc *ServerController) CreateServer(c *gin.Context) {
 	}
 
 	// Create server
-	server := models.Server{
-		ID:          uuid.New().String(),
+	serverID := uuid.New().String()
+	server, err := sc.queries.CreateServer(ctx, db.CreateServerParams{
+		ID:          serverID,
 		Name:        req.Name,
-		Description: req.Description,
-		Icon:        req.Icon,
+		Description: database.StringToPgText(req.Description),
+		Icon:        database.StringToPgText(req.Icon),
 		OwnerID:     userID,
-	}
-
-	if err := database.DB.Create(&server).Error; err != nil {
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create server",
 		})
@@ -66,14 +125,14 @@ func (sc *ServerController) CreateServer(c *gin.Context) {
 	}
 
 	// Create server member (owner)
-	member := models.ServerMember{
-		ID:       uuid.New().String(),
+	memberID := uuid.New().String()
+	_, err = sc.queries.CreateServerMember(ctx, db.CreateServerMemberParams{
+		ID:       memberID,
 		ServerID: server.ID,
 		UserID:   userID,
-		Role:     "owner",
-	}
-
-	if err := database.DB.Create(&member).Error; err != nil {
+		Role:     pgtype.Text{String: "owner", Valid: true},
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create server membership",
 		})
@@ -81,15 +140,16 @@ func (sc *ServerController) CreateServer(c *gin.Context) {
 	}
 
 	// Create default general channel
-	channel := models.Channel{
-		ID:       uuid.New().String(),
-		Name:     "general",
-		Type:     "text",
-		ServerID: server.ID,
-		Position: 0,
-	}
-
-	if err := database.DB.Create(&channel).Error; err != nil {
+	channelID := uuid.New().String()
+	_, err = sc.queries.CreateChannel(ctx, db.CreateChannelParams{
+		ID:              channelID,
+		Name:            "general",
+		Type:            "text",
+		ServerID:        server.ID,
+		Position:        0,
+		MaxParticipants: pgtype.Int4{Valid: false},
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create default channel",
 		})
@@ -97,76 +157,122 @@ func (sc *ServerController) CreateServer(c *gin.Context) {
 	}
 
 	// Fetch server with relationships
-	var createdServer models.Server
-	database.DB.Preload("Members").Preload("Channels").Where("id = ?", server.ID).First(&createdServer)
+	serverResp, err := sc.buildServerResponse(ctx, server)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server details",
+		})
+		return
+	}
 
-	c.JSON(http.StatusCreated, createdServer)
+	c.JSON(http.StatusCreated, serverResp)
 }
 
 // GetUserServers returns all servers for the current user
 func (sc *ServerController) GetUserServers(c *gin.Context) {
+	ctx := c.Request.Context()
 	userID, _ := middleware.GetUserID(c)
 
-	var servers []models.Server
-	result := database.DB.Preload("Channels").Preload("Members.User").
-		Joins("JOIN server_members ON servers.id = server_members.server_id").
-		Where("server_members.user_id = ?", userID).
-		Find(&servers)
-
-	if result.Error != nil {
+	servers, err := sc.queries.GetUserServers(ctx, userID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to fetch servers",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, servers)
+	// Build response with channels for each server
+	serversResp := make([]gin.H, len(servers))
+	for i, server := range servers {
+		serverResp, err := sc.buildServerResponse(ctx, server)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to fetch server details",
+			})
+			return
+		}
+		serversResp[i] = serverResp
+	}
+
+	c.JSON(http.StatusOK, serversResp)
 }
 
 // GetServer returns a specific server by ID
 func (sc *ServerController) GetServer(c *gin.Context) {
+	ctx := c.Request.Context()
 	serverID := c.Param("id")
 	userID, _ := middleware.GetUserID(c)
 
 	// Check if user is a member of the server
-	var member models.ServerMember
-	result := database.DB.Where("server_id = ? AND user_id = ?", serverID, userID).First(&member)
-	if result.Error != nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Not a member of this server",
+	_, err := sc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: serverID,
+		UserID:   userID,
+	})
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Not a member of this server",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check membership",
 		})
 		return
 	}
 
-	var server models.Server
-	result = database.DB.Preload("Channels").Preload("Members.User").Where("id = ?", serverID).First(&server)
-	if result.Error != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Server not found",
+	server, err := sc.queries.GetServerByID(ctx, serverID)
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Server not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, server)
+	serverResp, err := sc.buildServerResponse(ctx, server)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server details",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, serverResp)
 }
 
 // UpdateServer updates a server's information
 func (sc *ServerController) UpdateServer(c *gin.Context) {
+	ctx := c.Request.Context()
 	serverID := c.Param("id")
 	userID, _ := middleware.GetUserID(c)
 
 	// Check if user has permission to update the server
-	var member models.ServerMember
-	result := database.DB.Where("server_id = ? AND user_id = ?", serverID, userID).First(&member)
-	if result.Error != nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Not a member of this server",
+	member, err := sc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: serverID,
+		UserID:   userID,
+	})
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Not a member of this server",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check membership",
 		})
 		return
 	}
 
 	// Only owners and admins can update servers
-	if member.Role != "owner" && member.Role != "admin" {
+	role := database.PgTextToString(member.Role)
+	if role == nil || (*role != "owner" && *role != "admin") {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "Only server owners and admins can update the server",
 		})
@@ -186,50 +292,82 @@ func (sc *ServerController) UpdateServer(c *gin.Context) {
 		return
 	}
 
-	// Update server
-	updates := make(map[string]interface{})
-	if updateData.Name != nil {
-		updates["name"] = *updateData.Name
-	}
-	if updateData.Description != nil {
-		updates["description"] = *updateData.Description
-	}
-	if updateData.Icon != nil {
-		updates["icon"] = *updateData.Icon
+	// Get current server to preserve fields
+	currentServer, err := sc.queries.GetServerByID(ctx, serverID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server",
+		})
+		return
 	}
 
-	result = database.DB.Model(&models.Server{}).Where("id = ?", serverID).Updates(updates)
-	if result.Error != nil {
+	// Update only provided fields
+	name := currentServer.Name
+	if updateData.Name != nil {
+		name = *updateData.Name
+	}
+
+	description := database.PgTextToString(currentServer.Description)
+	if updateData.Description != nil {
+		description = updateData.Description
+	}
+
+	icon := database.PgTextToString(currentServer.Icon)
+	if updateData.Icon != nil {
+		icon = updateData.Icon
+	}
+
+	server, err := sc.queries.UpdateServer(ctx, db.UpdateServerParams{
+		ID:          serverID,
+		Name:        name,
+		Description: database.StringToPgText(description),
+		Icon:        database.StringToPgText(icon),
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to update server",
 		})
 		return
 	}
 
-	// Fetch updated server
-	var server models.Server
-	database.DB.Preload("Members").Preload("Channels").Where("id = ?", serverID).First(&server)
+	serverResp, err := sc.buildServerResponse(ctx, server)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch server details",
+		})
+		return
+	}
 
-	c.JSON(http.StatusOK, server)
+	c.JSON(http.StatusOK, serverResp)
 }
 
 // DeleteServer deletes a server
 func (sc *ServerController) DeleteServer(c *gin.Context) {
+	ctx := c.Request.Context()
 	serverID := c.Param("id")
 	userID, _ := middleware.GetUserID(c)
 
 	// Check if user has permission to delete the server
-	var member models.ServerMember
-	result := database.DB.Where("server_id = ? AND user_id = ?", serverID, userID).First(&member)
-	if result.Error != nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Not a member of this server",
+	member, err := sc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: serverID,
+		UserID:   userID,
+	})
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Not a member of this server",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check membership",
 		})
 		return
 	}
 
 	// Only owners and admins can delete servers
-	if member.Role != "owner" && member.Role != "admin" {
+	role := database.PgTextToString(member.Role)
+	if role == nil || (*role != "owner" && *role != "admin") {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "Only server owners and admins can delete the server",
 		})
@@ -237,8 +375,8 @@ func (sc *ServerController) DeleteServer(c *gin.Context) {
 	}
 
 	// Delete server (cascade will handle related records)
-	result = database.DB.Delete(&models.Server{}, "id = ?", serverID)
-	if result.Error != nil {
+	err = sc.queries.DeleteServer(ctx, serverID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to delete server",
 		})
@@ -252,21 +390,31 @@ func (sc *ServerController) DeleteServer(c *gin.Context) {
 
 // QuitServer removes a user from a server
 func (sc *ServerController) QuitServer(c *gin.Context) {
+	ctx := c.Request.Context()
 	serverID := c.Param("id")
 	userID, _ := middleware.GetUserID(c)
 
 	// Check if user is a member of the server
-	var member models.ServerMember
-	result := database.DB.Where("server_id = ? AND user_id = ?", serverID, userID).First(&member)
-	if result.Error != nil {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Not a member of this server",
+	member, err := sc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: serverID,
+		UserID:   userID,
+	})
+	if err != nil {
+		if database.IsNoRowsError(err) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Not a member of this server",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to check membership",
 		})
 		return
 	}
 
 	// Check if user is the owner (owners can't quit, they must delete)
-	if member.Role == "owner" {
+	role := database.PgTextToString(member.Role)
+	if role != nil && *role == "owner" {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "Server owners cannot quit. Use delete server instead.",
 		})
@@ -274,8 +422,11 @@ func (sc *ServerController) QuitServer(c *gin.Context) {
 	}
 
 	// Remove user from server
-	result = database.DB.Delete(&member)
-	if result.Error != nil {
+	err = sc.queries.DeleteServerMember(ctx, db.DeleteServerMemberParams{
+		ServerID: serverID,
+		UserID:   userID,
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to quit server",
 		})
@@ -288,6 +439,7 @@ func (sc *ServerController) QuitServer(c *gin.Context) {
 }
 
 func (sc *ServerController) CreateChannel(c *gin.Context) {
+	ctx := c.Request.Context()
 	userID, _ := middleware.GetUserID(c)
 
 	var req CreateChannelRequest
@@ -312,12 +464,12 @@ func (sc *ServerController) CreateChannel(c *gin.Context) {
 	}
 
 	// Ensure user is a member
-	var member models.ServerMember
-	if err := database.DB.
-		Where("server_id = ? AND user_id = ?", serverID, userID).
-		First(&member).Error; err != nil {
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	_, err := sc.queries.GetServerMember(ctx, db.GetServerMemberParams{
+		ServerID: serverID,
+		UserID:   userID,
+	})
+	if err != nil {
+		if database.IsNoRowsError(err) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Not a member of this server"})
 			return
 		}
@@ -326,37 +478,46 @@ func (sc *ServerController) CreateChannel(c *gin.Context) {
 	}
 
 	// Calculate next position
-	var count int64
-	if err := database.DB.
-		Model(&models.Channel{}).
-		Where("server_id = ?", serverID).
-		Count(&count).Error; err != nil {
-
+	count, err := sc.queries.CountChannelsByServerID(ctx, serverID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to calculate channel position"})
 		return
 	}
 
-	channel := models.Channel{
-		ID:       uuid.New().String(),
-		Name:     req.Name,
-		Type:     req.Type,
-		ServerID: serverID,
-		Position: int(count),
-	}
-
-	if err := database.DB.Create(&channel).Error; err != nil {
+	channelID := uuid.New().String()
+	channel, err := sc.queries.CreateChannel(ctx, db.CreateChannelParams{
+		ID:              channelID,
+		Name:            req.Name,
+		Type:            req.Type,
+		ServerID:        serverID,
+		Position:        int32(count),
+		MaxParticipants: pgtype.Int4{Valid: false},
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create channel"})
 		return
 	}
 
 	// -----------------------------------------
-	// 🔵 SOCKET EVENT EMISSION 
+	// 🔵 SOCKET EVENT EMISSION
 	// -----------------------------------------
 	if realtime.SocketServer != nil {
 		fmt.Println("Emitting socket event to server room:", serverID)
 
+		// Convert channel to map for socket emission
+		channelMap := gin.H{
+			"id":               channel.ID,
+			"name":             channel.Name,
+			"type":             channel.Type,
+			"server_id":        channel.ServerID,
+			"position":         channel.Position,
+			"max_participants": channel.MaxParticipants,
+			"created_at":       channel.CreatedAt,
+			"updated_at":       channel.UpdatedAt,
+		}
+
 		// Send channel:new event
-		realtime.SocketServer.BroadcastToRoom("/", serverID, "channel:new", channel)
+		realtime.SocketServer.BroadcastToRoom("/", serverID, "channel:new", channelMap)
 
 		// Test event (same as TS)
 		realtime.SocketServer.BroadcastToRoom("/", serverID, "test:event", map[string]any{
@@ -367,7 +528,19 @@ func (sc *ServerController) CreateChannel(c *gin.Context) {
 		fmt.Println("Socket events emitted successfully")
 	}
 
-	c.JSON(http.StatusCreated, channel)
+	// Return channel in response format
+	channelResp := gin.H{
+		"id":               channel.ID,
+		"name":             channel.Name,
+		"type":             channel.Type,
+		"server_id":        channel.ServerID,
+		"position":         channel.Position,
+		"max_participants": channel.MaxParticipants,
+		"created_at":       channel.CreatedAt,
+		"updated_at":       channel.UpdatedAt,
+	}
+
+	c.JSON(http.StatusCreated, channelResp)
 }
 
 func (sc *ServerController) GetChannel(c *gin.Context) {

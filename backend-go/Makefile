@@ -42,10 +42,41 @@ deps: ## Install dependencies
 	go mod tidy
 	go mod download
 
-# Run database migrations
-migrate: ## Run database migrations
+# Run database migrations using golang-migrate
+migrate: ## Run database migrations (requires migrate CLI: https://github.com/golang-migrate/migrate)
 	@echo "Running database migrations..."
-	go run cmd/server/main.go migrate
+	@if ! command -v migrate >/dev/null 2>&1 && [ ! -f "$(HOME)/go/bin/migrate" ]; then \
+		echo "Error: migrate CLI not found. Install with: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; \
+		echo "Then add $HOME/go/bin to your PATH"; \
+		exit 1; \
+	fi
+	@read -p "Enter database URL (postgres://user:pass@host:port/dbname) or press Enter for default: " dburl; \
+	if [ -z "$$dburl" ]; then \
+		dburl="postgres://$${DATABASE_USER:-postgres}:$${DATABASE_PASSWORD:-postgres}@$${DATABASE_HOST:-localhost}:$${DATABASE_PORT:-5432}/$${DATABASE_NAME:-discord_clone}?sslmode=$${DATABASE_SSL_MODE:-disable}"; \
+	fi; \
+	PATH="$$PATH:$$HOME/go/bin" migrate -path migrations -database "$$dburl" up
+
+migrate-down: ## Rollback last migration
+	@if ! command -v migrate >/dev/null 2>&1 && [ ! -f "$(HOME)/go/bin/migrate" ]; then \
+		echo "Error: migrate CLI not found. Install with: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; \
+		echo "Then add $HOME/go/bin to your PATH"; \
+		exit 1; \
+	fi
+	@read -p "Enter database URL (postgres://user:pass@host:port/dbname) or press Enter for default: " dburl; \
+	if [ -z "$$dburl" ]; then \
+		dburl="postgres://$${DATABASE_USER:-postgres}:$${DATABASE_PASSWORD:-postgres}@$${DATABASE_HOST:-localhost}:$${DATABASE_PORT:-5432}/$${DATABASE_NAME:-discord_clone}?sslmode=$${DATABASE_SSL_MODE:-disable}"; \
+	fi; \
+	PATH="$$PATH:$$HOME/go/bin" migrate -path migrations -database "$$dburl" down 1
+
+# Generate sqlc code
+sqlc-generate: ## Generate sqlc code from SQL queries
+	@echo "Generating sqlc code..."
+	@if ! command -v sqlc >/dev/null 2>&1 && [ ! -f "$(HOME)/go/bin/sqlc" ]; then \
+		echo "Error: sqlc not found. Install with: go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest"; \
+		echo "Then add $HOME/go/bin to your PATH"; \
+		exit 1; \
+	fi
+	@PATH="$$PATH:$$HOME/go/bin" sqlc generate
 
 # Format code
 fmt: ## Format code
