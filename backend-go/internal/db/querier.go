@@ -11,6 +11,7 @@ import (
 type Querier interface {
 	CountChannelsByServerID(ctx context.Context, serverID string) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (Channel, error)
+	CreateInvite(ctx context.Context, arg CreateInviteParams) (Invite, error)
 	CreateServer(ctx context.Context, arg CreateServerParams) (Server, error)
 	CreateServerMember(ctx context.Context, arg CreateServerMemberParams) (ServerMember, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
@@ -19,6 +20,8 @@ type Querier interface {
 	DeleteServerMember(ctx context.Context, arg DeleteServerMemberParams) error
 	GetChannelByID(ctx context.Context, id string) (Channel, error)
 	GetChannelsByServerID(ctx context.Context, serverID string) ([]Channel, error)
+	GetInviteByCode(ctx context.Context, code string) (Invite, error)
+	GetInvitesByServerID(ctx context.Context, serverID string) ([]Invite, error)
 	GetServerByID(ctx context.Context, id string) (Server, error)
 	GetServerMember(ctx context.Context, arg GetServerMemberParams) (ServerMember, error)
 	GetServerMembers(ctx context.Context, serverID string) ([]ServerMember, error)
@@ -31,6 +34,7 @@ type Querier interface {
 	GetUserServers(ctx context.Context, userID string) ([]Server, error)
 	GetUsers(ctx context.Context) ([]GetUsersRow, error)
 	UpdateChannel(ctx context.Context, arg UpdateChannelParams) (Channel, error)
+	UpdateInvite(ctx context.Context, arg UpdateInviteParams) (Invite, error)
 	UpdateServer(ctx context.Context, arg UpdateServerParams) (Server, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) (User, error)

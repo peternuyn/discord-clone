@@ -3,17 +3,19 @@ package routes
 import (
 	"discord-clone-backend/internal/controllers"
 	"discord-clone-backend/internal/middleware"
+	"discord-clone-backend/internal/realtime"
 	"discord-clone-backend/pkg/config"
 
 	"github.com/gin-gonic/gin"
 )
 
 // SetupRoutes sets up all API routes
-func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
+func SetupRoutes(router *gin.RouterGroup, cfg *config.Config, socket *realtime.SocketServer) {
 	// Initialize controllers
 	authController := controllers.NewAuthController(cfg.JWT.Secret)
 	userController := controllers.NewUserController()
-	serverController := controllers.NewServerController()
+	serverController := controllers.NewServerController(socket)
+	messageController := controllers.NewMessageController(socket)
 
 	// Auth routes (public)
 	auth := router.Group("/auth")
@@ -57,6 +59,9 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 		channels.GET("/:id", serverController.GetChannel)
 		channels.PUT("/:id", serverController.UpdateChannel)
 		channels.DELETE("/:id", serverController.DeleteChannel)
+		// Messages under channels
+		channels.POST("/:id/messages", messageController.CreateMessage)
+		channels.GET("/:id/messages", messageController.ListMessages)
 	}
 
 	// Invite routes (protected)
@@ -67,4 +72,5 @@ func SetupRoutes(router *gin.RouterGroup, cfg *config.Config) {
 		invites.GET("/:code", serverController.GetInvite)
 		invites.POST("/:code/accept", serverController.AcceptInvite)
 	}
+
 }

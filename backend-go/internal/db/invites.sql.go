@@ -137,4 +137,3 @@ func (q *Queries) UpdateInvite(ctx context.Context, arg UpdateInviteParams) (Inv
 	)
 	return i, err
 }
-

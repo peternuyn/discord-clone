@@ -19,12 +19,14 @@ import (
 // ServerController handles server-related requests
 type ServerController struct {
 	queries *db.Queries
+	socket  *realtime.SocketServer
 }
 
 // NewServerController creates a new server controller
-func NewServerController() *ServerController {
+func NewServerController(socket *realtime.SocketServer) *ServerController {
 	return &ServerController{
 		queries: db.New(database.GetDB()),
+		socket:  socket,
 	}
 }
 
@@ -523,7 +525,7 @@ func (sc *ServerController) CreateChannel(c *gin.Context) {
 	// -----------------------------------------
 	// 🔵 SOCKET EVENT EMISSION
 	// -----------------------------------------
-	if realtime.SocketServer != nil {
+	if sc.socket != nil {
 		fmt.Println("Emitting socket event to server room:", serverID)
 
 		// Convert channel to map for socket emission
@@ -539,10 +541,10 @@ func (sc *ServerController) CreateChannel(c *gin.Context) {
 		}
 
 		// Send channel:new event
-		realtime.SocketServer.BroadcastToRoom("/", serverID, "channel:new", channelMap)
+		sc.socket.BroadcastToRoom(serverID, "channel:new", channelMap)
 
 		// Test event (same as TS)
-		realtime.SocketServer.BroadcastToRoom("/", serverID, "test:event", map[string]any{
+		sc.socket.BroadcastToRoom(serverID, "test:event", map[string]any{
 			"message":   "Test event from Go channel creation",
 			"channelId": channel.ID,
 		})
@@ -670,10 +672,10 @@ func (sc *ServerController) UpdateChannel(c *gin.Context) {
 	// -----------------------------------------
 	// 🔵 SOCKET EVENT EMISSION
 	// -----------------------------------------
-	if realtime.SocketServer != nil {
+	if sc.socket != nil {
 		fmt.Println("Emitting socket event to server room:", channel.ServerID)
 
-		// Convert channel to map for socket emission 
+		// Convert channel to map for socket emission
 		channelMap := gin.H{
 			"id":               channel.ID,
 			"name":             channel.Name,
@@ -686,7 +688,7 @@ func (sc *ServerController) UpdateChannel(c *gin.Context) {
 		}
 
 		// Send channel:update event
-		realtime.SocketServer.BroadcastToRoom("/", channel.ServerID, "channel:update", channelMap)
+		sc.socket.BroadcastToRoom(channel.ServerID, "channel:update", channelMap)
 
 		fmt.Println("Socket event emitted successfully")
 	}
@@ -710,7 +712,7 @@ func (sc *ServerController) DeleteChannel(c *gin.Context) {
 	ctx := c.Request.Context()
 	channelID := c.Param("id")
 
-	// Get channel info before deletion for socket emission 
+	// Get channel info before deletion for socket emission
 	channel, err := sc.queries.GetChannelByID(ctx, channelID)
 	if err != nil {
 		if database.IsNoRowsError(err) {
@@ -737,11 +739,11 @@ func (sc *ServerController) DeleteChannel(c *gin.Context) {
 	// -----------------------------------------
 	// 🔵 SOCKET EVENT EMISSION
 	// -----------------------------------------
-	if realtime.SocketServer != nil {
+	if sc.socket != nil {
 		fmt.Println("Emitting socket event to server room:", channel.ServerID)
 
 		// Send channel:delete event (matching TypeScript - emits just the ID)
-		realtime.SocketServer.BroadcastToRoom("/", channel.ServerID, "channel:delete", channelID)
+		sc.socket.BroadcastToRoom(channel.ServerID, "channel:delete", channelID)
 
 		fmt.Println("Socket event emitted successfully")
 	}
@@ -825,9 +827,9 @@ func (sc *ServerController) CreateInvite(c *gin.Context) {
 
 	// Return invite in response format
 	inviteResp := gin.H{
-		"id":        invite.ID,
-		"code":      invite.Code,
-		"server_id": invite.ServerID,
+		"id":         invite.ID,
+		"code":       invite.Code,
+		"server_id":  invite.ServerID,
 		"created_at": invite.CreatedAt,
 		"expires_at": invite.ExpiresAt,
 		"used":       invite.Used,
@@ -886,9 +888,9 @@ func (sc *ServerController) GetInvite(c *gin.Context) {
 
 	// Return invite with server info
 	inviteResp := gin.H{
-		"id":        invite.ID,
-		"code":      invite.Code,
-		"server_id": invite.ServerID,
+		"id":         invite.ID,
+		"code":       invite.Code,
+		"server_id":  invite.ServerID,
 		"created_at": invite.CreatedAt,
 		"expires_at": invite.ExpiresAt,
 		"used":       invite.Used,

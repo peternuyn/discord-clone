@@ -212,7 +212,7 @@ class ApiService {
         offset: number;
         hasMore: boolean;
       };
-    }>(`/channels/${channelId}/messages?limit=${limit}&offset=${offset}`);
+    }>(`channels/${channelId}/messages?limit=${limit}&offset=${offset}`);
   }
 
   /**
@@ -222,7 +222,7 @@ class ApiService {
    * @returns Promise with created message data
    */
   async createMessage(channelId: string, content: string): Promise<any> {
-    return this.request<any>(`/channels/${channelId}/messages`, {
+    return this.request<any>(`channels/${channelId}/messages`, {
       method: 'POST',
       body: JSON.stringify({ content }),
     });
@@ -241,6 +241,7 @@ class ApiService {
     return response.json();
   }
 
+  // Online Users for Server API
   async getOnlineUsersForServer(serverId: string) {
     const response = await fetch(`${API_BASE_URL}/users/online/server/${serverId}`, {
       credentials: 'include',
@@ -253,6 +254,7 @@ class ApiService {
     return response.json();
   }
 
+  // Is User Online API
   async isUserOnline(userId: string) {
     const response = await fetch(`${API_BASE_URL}/users/online/${userId}`, {
       credentials: 'include',

@@ -198,6 +198,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 		return
 	}
 
+	print("JWT token: ", token + "\n")
 	// Update user status to online
 	updatedUser, err := ac.queries.UpdateUserStatus(ctx, db.UpdateUserStatusParams{
 		ID:     user.ID,

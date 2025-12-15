@@ -1,10 +1,14 @@
 package main
 
 import (
+	"errors"
+	"io"
 	"log"
 	"net/http"
 
+	"discord-clone-backend/internal/db"
 	"discord-clone-backend/internal/middleware"
+	"discord-clone-backend/internal/realtime"
 	"discord-clone-backend/internal/routes"
 	"discord-clone-backend/pkg/config"
 	"discord-clone-backend/pkg/database"
@@ -38,9 +42,11 @@ func main() {
 	// Note: Database migrations should be run manually using: make migrate
 	database.Migrate() // No-op, just logs a reminder
 
+	queries := db.New(database.GetDB())
+
 	// Create Gin router
 	router := gin.New()
-	
+
 	// Disable automatic redirect trailing slash
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
@@ -49,6 +55,22 @@ func main() {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 	router.Use(middleware.CORSMiddleware(cfg))
+
+	socketServer, err := realtime.NewSocketServer(queries, cfg.JWT.Secret)
+	if err != nil {
+		log.Fatalf("Failed to initialize socket server: %v", err)
+	}
+	defer socketServer.Close()
+
+	go func() {
+		if err := socketServer.Serve(); err != nil && !errors.Is(err, io.EOF) {
+			log.Fatalf("Socket server error: %v", err)
+		}
+	}()
+
+	// Socket.IO endpoints
+	router.GET("/socket.io/*any", gin.WrapH(socketServer.Handler()))
+	router.POST("/socket.io/*any", gin.WrapH(socketServer.Handler()))
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
@@ -60,7 +82,7 @@ func main() {
 
 	// Setup API routes
 	api := router.Group("/api")
-	routes.SetupRoutes(api, cfg)
+	routes.SetupRoutes(api, cfg, socketServer)
 
 	// Start server
 	port := cfg.Server.Port
